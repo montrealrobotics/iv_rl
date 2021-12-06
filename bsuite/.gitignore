@@ -1,0 +1,13 @@
+job_script.sh
+wandb/
+
+logs/
+
+__pycache__/
+
+slurm*
+emissions*
+test
+
+
+*.save

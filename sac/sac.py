@@ -1,0 +1,620 @@
+from collections import OrderedDict, namedtuple
+from typing import Tuple
+
+import numpy as np
+import torch
+import torch.optim as optim
+from rlkit.core.loss import LossFunction, LossStatistics
+from torch import nn as nn
+
+import rlkit.torch.pytorch_util as ptu
+from rlkit.core.eval_util import create_stats_ordered_dict
+from rlkit.torch.torch_rl_algorithm import TorchTrainer
+from rlkit.core.logging import add_prefix
+import gtimer as gt
+
+from scipy.optimize import minimize
+import numpy as np
+
+
+def get_iv_weights(variances):
+    '''
+    Returns Inverse Variance weights
+    Params
+    ======
+        variances (numpy array): variance of the targets
+    '''
+    weights = 1/variances
+    (weights)
+    weights = weights/np.sum(weights)
+    (weights)
+    return weights
+
+def compute_eff_bs(weights):
+    # Compute original effective mini-batch size
+    eff_bs = 1/np.sum(np.square(weights))
+    #print(eff_bs)
+    return eff_bs
+
+def get_optimal_eps(variances, minimal_size, epsilon_start):
+    minimal_size = min(variances.shape[0] - 1, minimal_size)
+    if compute_eff_bs(get_iv_weights(variances)) >= minimal_size:
+        return 0        
+    fn = lambda x: np.abs(compute_eff_bs(get_iv_weights(variances+np.abs(x))) - minimal_size)
+    epsilon = minimize(fn, 0, method='Nelder-Mead', options={'fatol': 1.0, 'maxiter':100})
+    eps = np.abs(epsilon.x[0])
+    eps = 0 if eps is None else eps
+    return eps
+
+
+
+
+SACLosses = namedtuple(
+    'SACLosses',
+    'policy_loss qf1_loss qf2_loss alpha_loss',
+)
+
+class SACTrainer(TorchTrainer, LossFunction):
+    def __init__(
+            self,
+            args,
+            env,
+            policy,
+            qf1,
+            qf2,
+            target_qf1,
+            target_qf2,
+
+            discount=0.99,
+            reward_scale=1.0,
+
+            policy_lr=1e-3,
+            qf_lr=1e-3,
+            optimizer_class=optim.Adam,
+
+            soft_target_tau=1e-2,
+            target_update_period=1,
+            plotter=None,
+            render_eval_paths=False,
+
+            use_automatic_entropy_tuning=True,
+            target_entropy=None,
+    ):
+        super().__init__()
+        self.env = env
+        self.args = args
+        self.policy = policy
+        self.qf1 = qf1
+        self.qf2 = qf2
+        self.target_qf1 = target_qf1
+        self.target_qf2 = target_qf2
+        self.soft_target_tau = soft_target_tau
+        self.target_update_period = target_update_period
+
+        self.use_automatic_entropy_tuning = use_automatic_entropy_tuning
+        if self.use_automatic_entropy_tuning:
+            if target_entropy is None:
+                # Use heuristic value from SAC paper
+                self.target_entropy = -np.prod(
+                    self.env.action_space.shape).item()
+            else:
+                self.target_entropy = target_entropy
+            self.log_alpha = ptu.zeros(1, requires_grad=True)
+            self.alpha_optimizer = optimizer_class(
+                [self.log_alpha],
+                lr=policy_lr,
+            )
+
+        self.plotter = plotter
+        self.render_eval_paths = render_eval_paths
+
+        self.qf_criterion = nn.MSELoss()
+        self.vf_criterion = nn.MSELoss()
+
+        self.policy_optimizer = optimizer_class(
+            self.policy.parameters(),
+            lr=policy_lr,
+        )
+        self.qf1_optimizer = optimizer_class(
+            self.qf1.parameters(),
+            lr=qf_lr,
+        )
+        self.qf2_optimizer = optimizer_class(
+            self.qf2.parameters(),
+            lr=qf_lr,
+        )
+
+        self.discount = discount
+        self.reward_scale = reward_scale
+        self._n_train_steps_total = 0
+        self._need_to_update_eval_statistics = True
+        self.eval_statistics = OrderedDict()
+
+    def train_from_torch(self, batch):
+        gt.blank_stamp()
+        losses, stats = self.compute_loss(
+            batch,
+            skip_statistics=not self._need_to_update_eval_statistics,
+        )
+        """
+        Update networks
+        """
+        if self.use_automatic_entropy_tuning:
+            self.alpha_optimizer.zero_grad()
+            losses.alpha_loss.backward()
+            self.alpha_optimizer.step()
+
+        self.policy_optimizer.zero_grad()
+        losses.policy_loss.backward()
+        self.policy_optimizer.step()
+
+        self.qf1_optimizer.zero_grad()
+        losses.qf1_loss.backward()
+        self.qf1_optimizer.step()
+
+        self.qf2_optimizer.zero_grad()
+        losses.qf2_loss.backward()
+        self.qf2_optimizer.step()
+
+        self._n_train_steps_total += 1
+
+        self.try_update_target_networks()
+        if self._need_to_update_eval_statistics:
+            self.eval_statistics = stats
+            # Compute statistics using only one batch per epoch
+            self._need_to_update_eval_statistics = False
+        gt.stamp('sac training', unique=False)
+
+    def try_update_target_networks(self):
+        if self._n_train_steps_total % self.target_update_period == 0:
+            self.update_target_networks()
+
+    def update_target_networks(self):
+        ptu.soft_update_from_to(
+            self.qf1, self.target_qf1, self.soft_target_tau
+        )
+        ptu.soft_update_from_to(
+            self.qf2, self.target_qf2, self.soft_target_tau
+        )
+
+    def compute_loss(
+        self,
+        batch,
+        skip_statistics=False,
+    ) -> Tuple[SACLosses, LossStatistics]:
+        rewards = batch['rewards']
+        terminals = batch['terminals']
+        obs = batch['observations']
+        actions = batch['actions']
+        next_obs = batch['next_observations']
+
+        """
+        Policy and Alpha Loss
+        """
+        #dist = self.policy(obs)
+        #new_obs_actions, log_pi = dist.rsample_and_logprob()
+        new_obs_actions, _, _, log_pi, *_ = self.policy(obs, reparameterize=True, return_log_prob=True)
+        log_pi = log_pi.unsqueeze(-1)
+        if self.use_automatic_entropy_tuning:
+            alpha_loss = -(self.log_alpha * (log_pi + self.target_entropy).detach()).mean()
+            alpha = self.log_alpha.exp()
+        else:
+            alpha_loss = 0
+            alpha = 1
+
+        q_new_actions = torch.min(
+            self.qf1(obs, new_obs_actions),
+            self.qf2(obs, new_obs_actions),
+        )
+        policy_loss = (alpha*log_pi - q_new_actions).mean()
+
+        """
+        QF Loss
+        """
+        q1_pred = self.qf1(obs, actions)
+        q2_pred = self.qf2(obs, actions)
+        #next_dist = self.policy(next_obs)
+        new_next_actions, _, _, new_log_pi, *_ = self.policy(next_obs, reparameterize=True, return_log_prob=True,) #next_dist.rsample_and_logprob()
+        new_log_pi = new_log_pi.unsqueeze(-1)
+        target_q_values = torch.min(
+            self.target_qf1(next_obs, new_next_actions),
+            self.target_qf2(next_obs, new_next_actions),
+        ) - alpha * new_log_pi
+
+        q_target = self.reward_scale * rewards + (1. - terminals) * self.discount * target_q_values
+        qf1_loss = self.qf_criterion(q1_pred, q_target.detach())
+        qf2_loss = self.qf_criterion(q2_pred, q_target.detach())
+
+        """
+        Save some statistics for eval
+        """
+        eval_statistics = OrderedDict()
+        if not skip_statistics:
+            eval_statistics['QF1 Loss'] = np.mean(ptu.get_numpy(qf1_loss))
+            eval_statistics['QF2 Loss'] = np.mean(ptu.get_numpy(qf2_loss))
+            eval_statistics['Policy Loss'] = np.mean(ptu.get_numpy(
+                policy_loss
+            ))
+            eval_statistics.update(create_stats_ordered_dict(
+                'Q1 Predictions',
+                ptu.get_numpy(q1_pred),
+            ))
+            eval_statistics.update(create_stats_ordered_dict(
+                'Q2 Predictions',
+                ptu.get_numpy(q2_pred),
+            ))
+            eval_statistics.update(create_stats_ordered_dict(
+                'Q Targets',
+                ptu.get_numpy(q_target),
+            ))
+            eval_statistics.update(create_stats_ordered_dict(
+                'Log Pis',
+                ptu.get_numpy(log_pi),
+            ))
+            #policy_statistics = add_prefix(dist.get_diagnostics(), "policy/")
+            #eval_statistics.update(policy_statistics)
+            if self.use_automatic_entropy_tuning:
+                eval_statistics['Alpha'] = alpha.item()
+                eval_statistics['Alpha Loss'] = alpha_loss.item()
+
+        loss = SACLosses(
+            policy_loss=policy_loss,
+            qf1_loss=qf1_loss,
+            qf2_loss=qf2_loss,
+            alpha_loss=alpha_loss,
+        )
+
+        return loss, eval_statistics
+
+    def get_diagnostics(self):
+        stats = super().get_diagnostics()
+        stats.update(self.eval_statistics)
+        return stats
+
+    def end_epoch(self, epoch):
+        self._need_to_update_eval_statistics = True
+
+    @property
+    def networks(self):
+        return [
+            self.policy,
+            self.qf1,
+            self.qf2,
+            self.target_qf1,
+            self.target_qf2,
+        ]
+
+    @property
+    def optimizers(self):
+        return [
+            self.alpha_optimizer,
+            self.qf1_optimizer,
+            self.qf2_optimizer,
+            self.policy_optimizer,
+        ]
+
+    def get_snapshot(self):
+        return dict(
+            policy=self.policy,
+            qf1=self.qf1,
+            qf2=self.qf2,
+            target_qf1=self.target_qf1,
+            target_qf2=self.target_qf2,
+        )
+
+
+class ProbSACTrainer(TorchTrainer, LossFunction):
+    def __init__(
+            self,
+            args,
+            env,
+            policy,
+            qf1,
+            qf2,
+            target_qf1,
+            target_qf2,
+
+            discount=0.99,
+            reward_scale=1.0,
+
+            policy_lr=1e-3,
+            qf_lr=1e-3,
+            optimizer_class=optim.Adam,
+
+            soft_target_tau=1e-2,
+            target_update_period=1,
+            plotter=None,
+            render_eval_paths=False,
+
+            use_automatic_entropy_tuning=True,
+            target_entropy=None,
+    ):
+        super().__init__()
+        self.args = args
+        self.env = env
+        self.policy = policy
+        self.qf1 = qf1
+        self.qf2 = qf2
+        self.target_qf1 = target_qf1
+        self.target_qf2 = target_qf2
+        self.soft_target_tau = soft_target_tau
+        self.target_update_period = target_update_period
+
+        self.use_automatic_entropy_tuning = use_automatic_entropy_tuning
+        if self.use_automatic_entropy_tuning:
+            if target_entropy is None:
+                # Use heuristic value from SAC paper
+                self.target_entropy = -np.prod(
+                    self.env.action_space.shape).item()
+            else:
+                self.target_entropy = target_entropy
+            self.log_alpha = ptu.zeros(1, requires_grad=True)
+            self.alpha_optimizer = optimizer_class(
+                [self.log_alpha],
+                lr=policy_lr,
+            )
+
+        self.plotter = plotter
+        self.render_eval_paths = render_eval_paths
+
+        self.qf_criterion = nn.MSELoss()
+        self.vf_criterion = nn.MSELoss()
+
+        self.policy_optimizer = optimizer_class(
+            self.policy.parameters(),
+            lr=policy_lr,
+        )
+        self.qf1_optimizer = optimizer_class(
+            self.qf1.parameters(),
+            lr=qf_lr,
+        )
+        self.qf2_optimizer = optimizer_class(
+            self.qf2.parameters(),
+            lr=qf_lr,
+        )
+
+        self.discount = discount
+        self.reward_scale = reward_scale
+        self._n_train_steps_total = 0
+        self._need_to_update_eval_statistics = True
+        self.eval_statistics = OrderedDict()
+
+    def train_from_torch(self, batch):
+        gt.blank_stamp()
+        losses, stats = self.compute_loss(
+            batch,
+            skip_statistics=not self._need_to_update_eval_statistics,
+        )
+        """
+        Update networks
+        """
+        if self.use_automatic_entropy_tuning:
+            self.alpha_optimizer.zero_grad()
+            losses.alpha_loss.backward()
+            self.alpha_optimizer.step()
+
+        self.policy_optimizer.zero_grad()
+        losses.policy_loss.backward()
+        self.policy_optimizer.step()
+
+        self.qf1_optimizer.zero_grad()
+        losses.qf1_loss.backward()
+        self.qf1_optimizer.step()
+
+        self.qf2_optimizer.zero_grad()
+        losses.qf2_loss.backward()
+        self.qf2_optimizer.step()
+
+        self._n_train_steps_total += 1
+
+        self.try_update_target_networks()
+        if self._need_to_update_eval_statistics:
+            self.eval_statistics = stats
+            # Compute statistics using only one batch per epoch
+            self._need_to_update_eval_statistics = False
+        gt.stamp('sac training', unique=False)
+
+    def try_update_target_networks(self):
+        if self._n_train_steps_total % self.target_update_period == 0:
+            self.update_target_networks()
+
+    def update_target_networks(self):
+        ptu.soft_update_from_to(
+            self.qf1, self.target_qf1, self.soft_target_tau
+        )
+        ptu.soft_update_from_to(
+            self.qf2, self.target_qf2, self.soft_target_tau
+        )
+
+
+    def get_weights(self, variance, eps):
+        return torch.ones(variance.size()).cuda() / variance.size()[0]
+
+
+    def compute_loss(
+        self,
+        batch,
+        skip_statistics=False,
+    ) -> Tuple[SACLosses, LossStatistics]:
+        rewards = batch['rewards']
+        terminals = batch['terminals']
+        obs = batch['observations']
+        actions = batch['actions']
+        next_obs = batch['next_observations']
+
+        """
+        Policy and Alpha Loss
+        """
+        #dist = self.policy(obs)
+        #new_obs_actions, log_pi = dist.rsample_and_logprob()
+        new_obs_actions, _, _, log_pi, *_ = self.policy(obs, reparameterize=True, return_log_prob=True)
+        log_pi = log_pi.unsqueeze(-1)
+        if self.use_automatic_entropy_tuning:
+            alpha_loss = -(self.log_alpha * (log_pi + self.target_entropy).detach()).mean()
+            alpha = self.log_alpha.exp()
+        else:
+            alpha_loss = 0
+            alpha = 1
+
+        q1_new_actions, q1_logvar_new_actions = self.qf1(obs, new_obs_actions, return_logstd=True)
+        q2_new_actions, q2_logvar_new_actions = self.qf2(obs, new_obs_actions, return_logstd=True)
+        q_new_actions_both, q_logvar_new_actions_both = torch.stack([q1_new_actions, q2_new_actions], axis=-1), torch.stack([q1_logvar_new_actions, q2_logvar_new_actions], axis=-1)
+        q_new_actions, q_argmin = q_new_actions_both.min(-1)
+
+        # print(q_logvar_new_actions_both.size(), q_argmin.size() )
+        q_var_new_actions = torch.exp(q_logvar_new_actions_both.squeeze().gather(1, q_argmin))
+        eps_actor = get_optimal_eps(q_var_new_actions.detach().cpu().numpy(),self.args.minimal_eff_bs, 0) if self.args.dynamic_eps else self.args.eps_frac #* torch.median(std_Q**2).item()
+        weight_actor_Q = self.get_weights(q_var_new_actions.detach(), eps_actor) #2*torch.sigmoid(-std_Q* self.temperature_act)
+        policy_loss = ((alpha*log_pi - q_new_actions)* weight_actor_Q.detach()).mean()
+
+        """
+        QF Loss
+        """
+        q1_pred, q1_pred_logvar = self.qf1(obs, actions, return_logstd=True)
+        q2_pred, q2_pred_logvar = self.qf2(obs, actions, return_logstd=True)
+        
+        # q1_pred = self.qf1(obs, actions)
+        # q2_pred = self.qf2(obs, actions)
+        #next_dist = self.policy(next_obs)
+        new_next_actions, _, _, new_log_pi, *_ = self.policy(next_obs, reparameterize=True, return_log_prob=True,) #next_dist.rsample_and_logprob()
+        new_log_pi = new_log_pi.unsqueeze(-1)
+
+        target_qf1, q1_target_logvar = self.target_qf1(next_obs, new_next_actions, return_logstd=True)
+        target_qf2, q2_target_logvar = self.target_qf2(next_obs, new_next_actions, return_logstd=True)
+        
+
+        q_target_both, q_target_logvar_both = torch.stack([target_qf1, target_qf2], axis=-1), torch.stack([q1_target_logvar, q2_target_logvar], axis=-1)
+        target_q, target_q_argmin = q_target_both.min(-1)
+        q_target_var = (self.discount**2)*torch.exp(q_target_logvar_both.squeeze().gather(1, target_q_argmin))
+        target_q_values = target_q - alpha * new_log_pi
+        q1_target = self.reward_scale * rewards + (1. - terminals) * self.discount * target_qf1
+        q2_target = self.reward_scale * rewards + (1. - terminals) * self.discount * target_qf2
+
+        eps_critic = get_optimal_eps((q_target_var).detach().cpu().numpy(),self.args.minimal_eff_bs, 0) if self.args.dynamic_eps else self.args.eps_frac #* torch.median(std_Q_critic**2).item()
+        weight_target_Q = self.get_weights(q_target_var, eps_critic) 
+        q_target = self.reward_scale * rewards + (1. - terminals) * self.discount * target_q_values
+        qf1_loss = self.qf_criterion(q1_pred, q_target.detach()) * (weight_target_Q.detach())
+        qf2_loss = self.qf_criterion(q2_pred, q_target.detach()) * (weight_target_Q.detach())
+
+        lossatt_q1 = (torch.mean((q1_target.detach() - q1_pred)**2 / (2 * torch.exp(q1_pred_logvar)) + (1/2) * torch.log(torch.exp(q1_pred_logvar))))
+        lossatt_q2 = (torch.mean((q2_target.detach() - q2_pred)**2 / (2 * torch.exp(q2_pred_logvar)) + (1/2) * torch.log(torch.exp(q2_pred_logvar))))
+        qf1_loss = qf1_loss.sum() + self.args.loss_att_weight * lossatt_q1
+        qf2_loss = qf2_loss.sum() + self.args.loss_att_weight * lossatt_q2
+
+        """
+        Save some statistics for eval
+        """
+        eval_statistics = OrderedDict()
+        if not skip_statistics:
+            eval_statistics['QF1 Loss'] = np.mean(ptu.get_numpy(qf1_loss))
+            eval_statistics['QF2 Loss'] = np.mean(ptu.get_numpy(qf2_loss))
+            eval_statistics['Policy Loss'] = np.mean(ptu.get_numpy(
+                policy_loss
+            ))
+            eval_statistics.update(create_stats_ordered_dict(
+                'Q1 Predictions',
+                ptu.get_numpy(q1_pred),
+            ))
+            eval_statistics.update(create_stats_ordered_dict(
+                'Q2 Predictions',
+                ptu.get_numpy(q2_pred),
+            ))
+            eval_statistics.update(create_stats_ordered_dict(
+                'Q Targets',
+                ptu.get_numpy(q_target),
+            ))
+            eval_statistics.update(create_stats_ordered_dict(
+                'Log Pis',
+                ptu.get_numpy(log_pi),
+            ))
+            #policy_statistics = add_prefix(dist.get_diagnostics(), "policy/")
+            #eval_statistics.update(policy_statistics)
+            if self.use_automatic_entropy_tuning:
+                eval_statistics['Alpha'] = alpha.item()
+                eval_statistics['Alpha Loss'] = alpha_loss.item()
+
+        loss = SACLosses(
+            policy_loss=policy_loss,
+            qf1_loss=qf1_loss,
+            qf2_loss=qf2_loss,
+            alpha_loss=alpha_loss,
+        )
+
+        return loss, eval_statistics
+
+    def get_diagnostics(self):
+        stats = super().get_diagnostics()
+        stats.update(self.eval_statistics)
+        return stats
+
+    def end_epoch(self, epoch):
+        self._need_to_update_eval_statistics = True
+
+    @property
+    def networks(self):
+        return [
+            self.policy,
+            self.qf1,
+            self.qf2,
+            self.target_qf1,
+            self.target_qf2,
+        ]
+
+    @property
+    def optimizers(self):
+        return [
+            self.alpha_optimizer,
+            self.qf1_optimizer,
+            self.qf2_optimizer,
+            self.policy_optimizer,
+        ]
+
+    def get_snapshot(self):
+        return dict(
+            policy=self.policy,
+            qf1=self.qf1,
+            qf2=self.qf2,
+            target_qf1=self.target_qf1,
+            target_qf2=self.target_qf2,
+        )
+
+
+class IV_ProbSAC(ProbSACTrainer):
+    def __init__(
+            self,
+            args,
+            env,
+            policy,
+            qf1,
+            qf2,
+            target_qf1,
+            target_qf2,
+
+            discount=0.99,
+            reward_scale=1.0,
+
+            policy_lr=1e-3,
+            qf_lr=1e-3,
+            optimizer_class=optim.Adam,
+
+            soft_target_tau=1e-2,
+            target_update_period=1,
+            plotter=None,
+            render_eval_paths=False,
+
+            use_automatic_entropy_tuning=True,
+            target_entropy=None,
+    ):
+        super().__init__(args,env,policy,qf1,qf2,target_qf1,target_qf2,\
+            discount,reward_scale,policy_lr,qf_lr,optimizer_class,\
+            soft_target_tau,target_update_period,plotter,render_eval_paths,\
+            use_automatic_entropy_tuning,target_entropy)
+
+    def iv_weights(self, variance, eps):
+        weights = (1. / (variance+eps))
+        weights /= weights.sum(0)
+        return weights
+
+    def get_weights(self, var, eps):
+        weight_target_Q = self.iv_weights(var, eps)
+        return weight_target_Q
