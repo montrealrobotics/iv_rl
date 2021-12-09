@@ -125,21 +125,14 @@ class EnsembleDQN(DQNAgent):
              [0].unsqueeze(1) * (1 - dones))
 
         # ------------------- update Q networks ------------------- #
-        eff_batch_size_list, eps_list, loss_list = [], [], []
+        eff_batch_size_list, xi_list, loss_list = [], [], []
         for i in range(self.opt.num_nets):
             Q_expected = self.qnets[i](states).gather(1, actions)
-            if self.opt.mean_target:
-                Q_targets_var = Q_targets_next_var.gather(1, next_actions)
-                self.eps = get_optimal_eps(Q_targets_var.detach().cpu().numpy(
-                ), self.opt.minimal_eff_bs, self.eps) if self.opt.dynamic_eps else self.opt.eps
-                weights = self.get_mse_weights(Q_targets_var)
-                loss = self.weighted_mse(Q_expected, Q_targets_mu, weights)
-            else:
-                Q_targets_var = Q_targets_next_var.gather(1, next_actions_ind[i])
-                self.eps = get_optimal_eps(Q_targets_var.detach().cpu().numpy(),\
-                             self.opt.minimal_eff_bs, self.eps) if self.opt.dynamic_eps else self.opt.eps
-                weights = self.get_mse_weights(Q_targets_var)
-                loss = self.weighted_mse(Q_expected, Q_targets[i], weights)
+            Q_targets_var = Q_targets_next_var.gather(1, next_actions_ind[i])
+            self.eps = get_optimal_xi(Q_targets_var.detach().cpu().numpy(),\
+                         self.opt.minimal_eff_bs, self.xi) if self.opt.dynamic_xi else self.opt.xi
+            weights = self.get_mse_weights(Q_targets_var)
+            loss = self.weighted_mse(Q_expected, Q_targets[i], weights)
             # SGD step
             self.optims[i].zero_grad()
             loss.backward()
@@ -147,7 +140,7 @@ class EnsembleDQN(DQNAgent):
 
             eff_batch_size_list.append(
                 compute_eff_bs(weights.detach().cpu().numpy()))
-            eps_list.append(self.eps)
+            xi_list.append(self.xi)
             loss_list.append(loss.item())
 
         # In order to log loss statistics
@@ -157,7 +150,7 @@ class EnsembleDQN(DQNAgent):
         for i in range(self.opt.num_nets):
             self.soft_update(self.qnets[i], self.target_nets[i], self.opt.tau)
 
-        return Q_targets_var.detach().cpu().numpy(), weights.detach().cpu().numpy(), np.mean(eff_batch_size_list), np.mean(eps_list)
+        return Q_targets_var.detach().cpu().numpy(), weights.detach().cpu().numpy(), np.mean(eff_batch_size_list), np.mean(xi_list)
 
     def get_mse_weights(self, variance):
     	weights = torch.ones(variance.size()).to(
@@ -237,12 +230,12 @@ class MaskEnsembleDQN(EnsembleDQN):
              [0].unsqueeze(1) * (1 - dones))
 
         # ------------------- update Q networks ------------------- #
-        eff_batch_size_list, eps_list, loss_list = [], [], []
+        eff_batch_size_list, xi_list, loss_list = [], [], []
         for i in range(self.opt.num_nets):
             Q_expected = self.qnets[i](states).gather(1, actions)[masks[:,i]]
             Q_target = Q_targets[i][masks[:,i]]
             Q_targets_var = Q_targets_next_var.gather(1, next_actions_ind[i])[masks[:,i]]
-            self.eps = get_optimal_eps(Q_targets_var.detach().cpu().numpy(), self.opt.minimal_eff_bs, self.eps) if self.opt.dynamic_eps else self.opt.eps
+            self.xi = get_optimal_xi(Q_targets_var.detach().cpu().numpy(), self.opt.minimal_eff_bs, self.xi) if self.opt.dynamic_xi else self.opt.xi
             weights = self.get_mse_weights(Q_targets_var)
             loss = self.weighted_mse(Q_expected, Q_target, weights)
             # SGD step
@@ -251,7 +244,7 @@ class MaskEnsembleDQN(EnsembleDQN):
             self.optims[i].step()
 
             eff_batch_size_list.append(compute_eff_bs(weights.detach().cpu().numpy()))
-            eps_list.append(self.eps)
+            xi_list.append(self.xi)
             loss_list.append(loss.item())
 
         # In order to log loss statistics
@@ -261,7 +254,7 @@ class MaskEnsembleDQN(EnsembleDQN):
         for i in range(self.opt.num_nets):
             self.soft_update(self.qnets[i], self.target_nets[i], self.opt.tau)   
 
-        return Q_targets_var.detach().cpu().numpy(), weights.detach().cpu().numpy(), np.mean(eff_batch_size_list), np.mean(eps_list)
+        return Q_targets_var.detach().cpu().numpy(), weights.detach().cpu().numpy(), np.mean(eff_batch_size_list), np.mean(xi_list)
 
 
 class RPFMaskEnsembleDQN(MaskEnsembleDQN):
@@ -347,7 +340,7 @@ class BootstrapDQN(MaskEnsembleDQN):
         eps = eps_start                    # initialize epsilon
         for i_episode in range(1, n_episodes+1):
             state = self.env.reset()
-            score, ep_var, ep_weights, eff_bs_list, eps_list, ep_Q, ep_loss = 0, [], [], [], [], [], []   # list containing scores from each episode
+            score, ep_var, ep_weights, eff_bs_list, xi_list, ep_Q, ep_loss = 0, [], [], [], [], [], []   # list containing scores from each episode
             # Select Network to take actions in the environment for the current episode
             curr_net = random.choice(range(self.opt.num_nets)) 
             for t in range(max_t):
@@ -363,7 +356,7 @@ class BootstrapDQN(MaskEnsembleDQN):
                         ep_var.extend(logs[0])
                         ep_weights.extend(logs[1])
                         eff_bs_list.append(logs[2])
-                        eps_list.append(logs[3])
+                        xi_list.append(logs[3])
                     except:
                         pass
                 ep_Q.append(Q)
@@ -464,32 +457,20 @@ class Lakshminarayan(EnsembleDQN):
         Q_var_mixture = (Q_targets_next_var + Q_targets_all**2 - Q_targets_all.mean(0).repeat(self.opt.num_nets,1,1)**2).mean(0) 
 
         # ------------------- update Q networks ------------------- #
-        eff_batch_size_list, eps_list, loss_list = [], [], []
+        eff_batch_size_list, xi_list, loss_list = [], [], []
         for i in range(self.opt.num_nets):
             # Q_expected = self.qnets[i](states).gather(1, actions)
             Q_expected, Q_log_var  = [x.gather(1, actions) for x in self.qnets[i](states, True)] 
-            if self.opt.mean_target:
-                Q_targets_var = Q_var_mixture.gather(1, next_actions)
-                self.eps = get_optimal_eps(Q_targets_var.detach().cpu().numpy(
-                ), self.opt.minimal_eff_bs, self.eps) if self.opt.dynamic_eps else self.opt.eps
-                weights = self.get_mse_weights(Q_targets_var)
-                loss = self.weighted_mse(Q_expected, Q_targets_mu, weights)
-                # Compute Loss Attenuation 
-                y, mu, var = Q_targets_mu, Q_expected, torch.exp(Q_log_var)
-                std = torch.sqrt(var) 
-                # print(y.size(), mu.size(), std.size())
-                lossatt = torch.mean((y - mu)**2 / (2 * torch.square(std)) + (1/2) * torch.log(torch.square(std)))
-            else:
-                Q_targets_var = Q_var_mixture.gather(1, next_actions_ind[i])
-                self.eps = get_optimal_eps(Q_targets_var.detach().cpu().numpy(),\
-                             self.opt.minimal_eff_bs, self.eps) if self.opt.dynamic_eps else self.opt.eps
-                weights = self.get_mse_weights(Q_targets_var)
-                loss = self.weighted_mse(Q_expected, Q_targets[i], weights)
-                # Compute Loss Attenuation 
-                y, mu, var = Q_targets[i], Q_expected, torch.exp(Q_log_var)
-                std = torch.sqrt(var) 
-                # print(y.size(), mu.size(), std.size())
-                lossatt = torch.mean((y - mu)**2 / (2 * torch.square(std)) + (1/2) * torch.log(torch.square(std)))
+            Q_targets_var = Q_var_mixture.gather(1, next_actions_ind[i])
+            self.xi = get_optimal_xi(Q_targets_var.detach().cpu().numpy(),\
+                         self.opt.minimal_eff_bs, self.xi) if self.opt.dynamic_xi else self.opt.xi
+            weights = self.get_mse_weights(Q_targets_var)
+            loss = self.weighted_mse(Q_expected, Q_targets[i], weights)
+            # Compute Loss Attenuation 
+            y, mu, var = Q_targets[i], Q_expected, torch.exp(Q_log_var)
+            std = torch.sqrt(var) 
+            # print(y.size(), mu.size(), std.size())
+            lossatt = torch.mean((y - mu)**2 / (2 * torch.square(std)) + (1/2) * torch.log(torch.square(std)))
             loss += self.opt.loss_att_weight*lossatt
             # SGD step
             self.optims[i].zero_grad()
@@ -498,7 +479,7 @@ class Lakshminarayan(EnsembleDQN):
 
             eff_batch_size_list.append(
                 compute_eff_bs(weights.detach().cpu().numpy()))
-            eps_list.append(self.eps)
+            xi_list.append(self.xi)
             loss_list.append(loss.item())
 
         # In order to log loss statistics
@@ -508,7 +489,7 @@ class Lakshminarayan(EnsembleDQN):
         for i in range(self.opt.num_nets):
             self.soft_update(self.qnets[i], self.target_nets[i], self.opt.tau)
 
-        return Q_targets_var.detach().cpu().numpy(), weights.detach().cpu().numpy(), np.mean(eff_batch_size_list), np.mean(eps_list)
+        return Q_targets_var.detach().cpu().numpy(), weights.detach().cpu().numpy(), np.mean(eff_batch_size_list), np.mean(xi_list)
 
 class LakshmiBootstrapDQN(BootstrapDQN):
     def __init__(self, env, opt, device="cuda"):
@@ -569,33 +550,21 @@ class LakshmiBootstrapDQN(BootstrapDQN):
         Q_var_mixture = (Q_targets_next_var + Q_targets_all**2 - Q_targets_all.mean(0).repeat(self.opt.num_nets,1,1)**2).mean(0)
 
         # ------------------- update Q networks ------------------- #
-        eff_batch_size_list, eps_list, loss_list = [], [], []
+        eff_batch_size_list, xi_list, loss_list = [], [], []
         for i in range(self.opt.num_nets):
             # Q_expected = self.qnets[i](states).gather(1, actions)
             Q_expected, Q_log_var  = [x.gather(1, actions) for x in self.qnets[i](states, True)]
             Q_expected, Q_log_var = Q_expected[masks[:,i]], Q_log_var[masks[:,i]]
-            if self.opt.mean_target:
-                Q_targets_var = Q_var_mixture.gather(1, next_actions)
-                self.eps = get_optimal_eps(Q_targets_var.detach().cpu().numpy(
-                ), self.opt.minimal_eff_bs, self.eps) if self.opt.dynamic_eps else self.opt.eps
-                weights = self.get_mse_weights(Q_targets_var)
-                loss = self.weighted_mse(Q_expected, Q_targets_mu, weights)
-                # Compute Loss Attenuation
-                y, mu, var = Q_targets_mu, Q_expected, torch.exp(Q_log_var)
-                std = torch.sqrt(var)
-                # print(y.size(), mu.size(), std.size())
-                lossatt = torch.mean((y - mu)**2 / (2 * torch.square(std)) + (1/2) * torch.log(torch.square(std)))
-            else:
-                Q_targets_var = Q_var_mixture.gather(1, next_actions_ind[i])[masks[:,i]]
-                self.eps = get_optimal_eps(Q_targets_var.detach().cpu().numpy(),\
-                             self.opt.minimal_eff_bs, self.eps) if self.opt.dynamic_eps else self.opt.eps
-                weights = self.get_mse_weights(Q_targets_var)
-                loss = self.weighted_mse(Q_expected, Q_targets[i][masks[:,i]], weights)
-                # Compute Loss Attenuation
-                y, mu, var = Q_targets[i][masks[:,i]], Q_expected, torch.exp(Q_log_var)
-                std = torch.sqrt(var)
-                # print(y.size(), mu.size(), std.size())
-                lossatt = torch.mean((y - mu)**2 / (2 * torch.square(std)) + (1/2) * torch.log(torch.square(std)))
+            Q_targets_var = Q_var_mixture.gather(1, next_actions_ind[i])[masks[:,i]]
+            self.xi = get_optimal_xi(Q_targets_var.detach().cpu().numpy(),\
+                         self.opt.minimal_eff_bs, self.xi) if self.opt.dynamic_xi else self.opt.xi
+            weights = self.get_mse_weights(Q_targets_var)
+            loss = self.weighted_mse(Q_expected, Q_targets[i][masks[:,i]], weights)
+            # Compute Loss Attenuation
+            y, mu, var = Q_targets[i][masks[:,i]], Q_expected, torch.exp(Q_log_var)
+            std = torch.sqrt(var)
+            # print(y.size(), mu.size(), std.size())
+            lossatt = torch.mean((y - mu)**2 / (2 * torch.square(std)) + (1/2) * torch.log(torch.square(std)))
             loss += self.opt.loss_att_weight*lossatt
             # SGD step
             self.optims[i].zero_grad()
@@ -604,7 +573,7 @@ class LakshmiBootstrapDQN(BootstrapDQN):
 
             eff_batch_size_list.append(
                 compute_eff_bs(weights.detach().cpu().numpy()))
-            eps_list.append(self.eps)
+            xi_list.append(self.xi)
             loss_list.append(loss.item())
 
         # In order to log loss statistics
@@ -614,5 +583,5 @@ class LakshmiBootstrapDQN(BootstrapDQN):
         for i in range(self.opt.num_nets):
             self.soft_update(self.qnets[i], self.target_nets[i], self.opt.tau)
 
-        return Q_targets_var.detach().cpu().numpy(), weights.detach().cpu().numpy(), np.mean(eff_batch_size_list), np.mean(eps_list)
+        return Q_targets_var.detach().cpu().numpy(), weights.detach().cpu().numpy(), np.mean(eff_batch_size_list), np.mean(xi_list)
 

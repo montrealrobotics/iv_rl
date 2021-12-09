@@ -19,7 +19,7 @@ import torch
 
 
 def select_network(model_name):
-    if model_name in ["IV_SAC", "IV_ProbSAC", "IV_ProbEnsembleSAC"]:
+    if model_name == "IV_SAC" or "Var" in model_name:
         return FlattenTwoHeadMlp
     else:
         return FlattenMlp
@@ -123,7 +123,7 @@ def ensemble_experiment(model, variant):
         expl_gamma=0,
         log_dir=variant['log_dir'],
         eps_frac=variant['eps_frac'],
-        dynamic_eps=variant['dynamic_eps'],
+        dynamic_xi=variant['dynamic_xi'],
         minimal_eff_bs=variant['minimal_eff_bs'],
         **variant['trainer_kwargs']
     )
@@ -260,14 +260,14 @@ def run_sac(model, args):
             
     variant['log_dir'] = log_dir
     variant["eps_frac"] = args.eps_frac
-    variant['dynamic_eps'] = args.dynamic_eps
+    variant['dynamic_xi'] = args.dynamic_xi
     variant['minimal_eff_bs'] = args.minimal_eff_bs
     variant['env_seed'] = args.env_seed
     variant['net_seed'] = args.net_seed
     variant['model'] = args.model
     variant['args'] = args
     ptu.set_gpu_mode(True)
-    if "SAC" == args.model or "ProbSAC" in args.model:
+    if "SAC" == args.model or "VarSAC" in args.model:
         sac_experiment(model, variant)
     else:
         ensemble_experiment(model, variant)

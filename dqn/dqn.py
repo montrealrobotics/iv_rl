@@ -43,7 +43,7 @@ class DQNAgent():
         self.memory = ReplayBuffer(opt, self.action_size, 42, self.device, self.mask)
         # Initialize time step (for updating every UPDATE_EVERY steps)
         self.t_step = 0
-        self.eps = 0
+        self.xi = 0
         self.loss = 0 
 
     def step(self, state, action, reward, next_state, done):
@@ -158,7 +158,7 @@ class DQNAgent():
         eps = eps_start                    # initialize epsilon
         for i_episode in range(1, n_episodes+1):
             state = self.env.reset()
-            score, ep_var, ep_weights, eff_bs_list, eps_list, ep_Q, ep_loss = 0, [], [], [], [], [], []   # list containing scores from each episode
+            score, ep_var, ep_weights, eff_bs_list, xi_list, ep_Q, ep_loss = 0, [], [], [], [], [], []   # list containing scores from each episode
             for t in range(max_t):
                 action, Q = self.act(state, eps, is_train=True)
                 next_state, reward, done, _ = self.env.step(action)
@@ -172,7 +172,7 @@ class DQNAgent():
                     ep_var.extend(logs[0])
                     ep_weights.extend(logs[1])
                     eff_bs_list.append(logs[2])
-                    eps_list.append(logs[3])
+                    xi_list.append(logs[3])
                     # except:
                     #     pass
                 ep_Q.append(Q)
@@ -265,7 +265,7 @@ class LossAttDQN(DQNAgent):
         Q_expected, Q_log_var  = [x.gather(1, actions) for x in self.qnetwork_local(states, True)] 
 
         # Compute loss
-        self.eps = get_optimal_eps(Q_targets_var.detach().cpu().numpy(), self.opt.minimal_eff_bs, self.eps) if self.opt.dynamic_eps else self.opt.eps
+        self.xi = get_optimal_xi(Q_targets_var.detach().cpu().numpy(), self.opt.minimal_eff_bs, self.xi) if self.opt.dynamic_xi else self.opt.xi
         weights = self.get_mse_weights(Q_targets_var)
         loss = self.weighted_mse(Q_expected, Q_targets, weights)
 
@@ -290,7 +290,7 @@ class LossAttDQN(DQNAgent):
         # ------------------- update target network ------------------- #
         self.soft_update(self.qnetwork_local, self.qnetwork_target, self.opt.tau)                     
 
-        return torch.exp(Q_log_var).detach().cpu().numpy(), weights.detach().cpu().numpy(), eff_batch_size, self.eps
+        return torch.exp(Q_log_var).detach().cpu().numpy(), weights.detach().cpu().numpy(), eff_batch_size, self.xi
 
     def get_mse_weights(self, variance):
     	weights = torch.ones(variance.size()).to(self.device) / self.opt.batch_size

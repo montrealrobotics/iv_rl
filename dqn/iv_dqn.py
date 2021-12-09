@@ -15,7 +15,7 @@ class IV_DQN(EnsembleDQN):
         super().__init__(env, opt, device)
 
     def iv_weights(self, variance):
-        weights = (1. / (variance+self.eps))
+        weights = (1. / (variance+self.xi ))
         weights /= weights.sum(0)
         return weights
 
@@ -38,7 +38,7 @@ class IV_MaskEnsembleDQN(MaskEnsembleDQN):
         super().__init__(env, opt, device)
 
     def iv_weights(self, variance):
-        weights = (1. / (variance+self.eps))
+        weights = (1. / (variance+self.xi ))
         weights /= weights.sum(0)
         return weights
 
@@ -60,7 +60,7 @@ class IV_RPFMaskEnsembleDQN(RPFMaskEnsembleDQN):
         super().__init__(env, opt, device)
 
     def iv_weights(self, variance):
-        weights = (1. / (variance+self.eps))
+        weights = (1. / (variance+self.xi ))
         weights /= weights.sum(0)
         return weights
 
@@ -82,7 +82,7 @@ class IV_LossAttDQN(LossAttDQN):
         super().__init__(env, opt, device)
 
     def iv_weights(self, variance):
-        weights = (1. / (variance+self.eps))
+        weights = (1. / (variance+self.xi ))
         weights /= weights.sum(0)
         return weights
 
@@ -105,7 +105,7 @@ class IV_BootstrapDQN(BootstrapDQN):
         super().__init__(env, opt, device)
 
     def iv_weights(self, variance):
-        weights = (1. / (variance+self.eps))
+        weights = (1. / (variance+self.xi ))
         weights /= weights.sum(0)
         return weights
 
@@ -126,7 +126,7 @@ class IV_RPFBootstrapDQN(RPFBootstrapDQN):
         super().__init__(env, opt, device)
 
     def iv_weights(self, variance):
-        weights = (1. / (variance+self.eps))
+        weights = (1. / (variance+self.xi ))
         weights /= weights.sum(0)
         return weights
 
@@ -149,7 +149,7 @@ class IV_MCDropDQN(MCDropDQN):
         super().__init__(env, opt, device)
 
     def iv_weights(self, variance):
-        weights = (1. / (variance+self.eps))
+        weights = (1. / (variance+self.xi ))
         weights /= weights.sum(0)
         return weights
 
@@ -170,7 +170,7 @@ class IV_Lakshminarayan(Lakshminarayan):
         super().__init__(env, opt, device)
 
     def iv_weights(self, variance):
-        weights = (1. / (variance+self.eps))
+        weights = (1. / (variance+self.xi ))
         weights /= weights.sum(0)
         return weights
 
@@ -191,7 +191,7 @@ class IV_LakshmiBootstrapDQN(LakshmiBootstrapDQN):
         super().__init__(env, opt, device)
 
     def iv_weights(self, variance):
-        weights = (1. / (variance+self.eps))
+        weights = (1. / (variance+self.xi ))
         weights /= weights.sum(0)
         return weights
 

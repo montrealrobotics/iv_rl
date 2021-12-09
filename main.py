@@ -23,30 +23,41 @@ warnings.filterwarnings('ignore')
 os.environ["WANDB_SILENT"] = "true"
 
 model_dict = {"DQN"                        : DQNAgent,
-              "ProbDQN"                    : LossAttDQN,
+              "VarDQN"                     : LossAttDQN,
               "EnsembleDQN"                : EnsembleDQN,
               "BootstrapDQN"               : RPFMaskEnsembleDQN,
               "IV_EnsembleDQN"             : IV_DQN,              
               "IV_BootstrapDQN"            : IV_BootstrapDQN,
-              "SunriseDQN"                 : Sunrise_BootstrapDQN,
               "BootstrapDQN"               : RPFBootstrapDQN,
               "IV_BootstrapDQN"            : IV_RPFBootstrapDQN,
               "IV_EnsembleDQN"             : IV_DQN,              
-              "IV_ProbDQN"                 : IV_LossAttDQN,
-              "ProbEnsembleDQN"            : LakshmiBootstrapDQN,
-              "IV_ProbEnsembleDQN"         : IV_LakshmiBootstrapDQN,
+              "IV_VarDQN"                  : IV_LossAttDQN,
+              "VarEnsembleDQN"             : LakshmiBootstrapDQN,
+              "IV_VarEnsembleDQN"          : IV_LakshmiBootstrapDQN,
               "IV_DQN"                     : IV_LakshmiBootstrapDQN,
+
+              "SunriseDQN"                 : Sunrise_BootstrapDQN,
+              "Sunrise_VarEnsembleDQN"     : Sunrise_LakshmiBootstrapDQN,
+
+              "UWACDQN"                    : UWAC_DQN,
+              "UWAC_VarEnsembleDQN"        : UWAC_LakshmiBootstrapDQN,
 
 
               "SAC"                        : SACTrainer,
-              "ProbSAC"                    : ProbSACTrainer,
-              "IV_ProbSAC"                 : IV_ProbSAC,
+              "VarSAC"                     : VarSACTrainer,
+              "IV_VarSAC"                  : IV_VarSAC,
 
               "EnsembleSAC"                : EnsembleSAC,
               "IV_EnsembleSAC"             : IV_EnsembleSAC,
-              "ProbEnsembleSAC"            : ProbEnsembleSAC,
-              "IV_SAC"                     : IV_ProbEnsembleSAC,
-              "IV_ProbEnsembleSAC"         : IV_ProbEnsembleSAC,
+              "VarEnsembleSAC"             : VarEnsembleSAC,
+              "IV_SAC"                     : IV_VarEnsembleSAC,
+              "IV_VarEnsembleSAC"          : IV_VarEnsembleSAC,
+
+              "SunriseSAC"                 : SunriseSAC,
+              "Sunrise_VarEnsembleSAC"     : Sunrise_VarEnsembleSAC,
+              
+              "UWACSAC"                    : UWACSAC,
+              "UWAC_VarEnsembleSAC"        : UWAC_VarEnsembleSAC
               }
 
 
@@ -77,8 +88,8 @@ parser.add_argument("--update_every", type=int, default=1,
                     help="Updating Target Network every x episodes")
 parser.add_argument("--log_dir", type=str, default="./logs/",
                     help="location to save models and metadata")
-parser.add_argument("--eps", type=float, default=1.,
-                    help="epsilon for variance stabilization")
+parser.add_argument("--xi", type=float, default=1.,
+                    help="xi for variance stabilization")
 parser.add_argument("--eps_frac", type=float, default=1.,
                     help="EPS multiplicative factor")
 parser.add_argument("--env_seed", type=int, default=0,
@@ -101,7 +112,7 @@ parser.add_argument("--mask", default="bernoulli", type=str, choices=["sampling"
                     help="Sampling a fixed effective batch from a larger batch or using bernoulli masks like BootstrapDQN ")
 parser.add_argument("--eps_decay", default=0.99, type=float,
                     help="Exploration decay rate")
-parser.add_argument("--dynamic_eps", type=str2bool, nargs='?',
+parser.add_argument("--dynamic_xi", type=str2bool, nargs='?',
                         const=True, default=False,
                         help="whether to use calculated eps using minimum effective batch size")
 parser.add_argument("--eps_type", type=str, choices=["eps", "mebs", "eps_frac"], default="eps",

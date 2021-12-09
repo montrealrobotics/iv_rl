@@ -31,15 +31,15 @@ def compute_eff_bs(weights):
     #print(eff_bs)
     return eff_bs
 
-def get_optimal_eps(variances, minimal_size, epsilon_start):
+def get_optimal_xi(variances, minimal_size, epsilon_start):
     minimal_size = min(variances.shape[0] - 1, minimal_size)
     if compute_eff_bs(get_iv_weights(variances)) >= minimal_size:
         return 0        
     fn = lambda x: np.abs(compute_eff_bs(get_iv_weights(variances+np.abs(x))) - minimal_size)
     epsilon = minimize(fn, 0, method='Nelder-Mead', options={'fatol': 1.0, 'maxiter':100})
-    eps = np.abs(epsilon.x[0])
-    eps = 0 if eps is None else eps
-    return eps
+    xi = np.abs(epsilon.x[0])
+    xi = 0 if xi is None else xi
+    return xi
 
 class DQN:
     def __init__(self,
@@ -282,8 +282,8 @@ class LossAttDQN(DQN):
         self.q_target.load_state_dict(self.qnet.state_dict())
         self.optimizer = optim.Adam(self.qnet.parameters(), lr=settings['lr'])
 
-        self.eps = settings["eps"]
-        self.dynamic_eps = settings["dynamic_eps"]
+        self.xi = settings["xi"]
+        self.dynamic_xi = settings["dynamic_xi"]
         self.minimal_eff_bs_ratio = settings["minimal_eff_bs_ratio"]
         self.minimal_eff_bs = int(self.batch_size * self.minimal_eff_bs_ratio)
         self.mask_prob = settings["mask_prob"]
@@ -337,8 +337,8 @@ class LossAttDQN(DQN):
         if not self.prioritized_replay:
             weights = torch.ones(self.batch_size)
         next_actions = next_q_vals.max(1)[1].unsqueeze(1)
-        self.eps = get_optimal_eps(q_target_var.detach().cpu().numpy(
-                ), self.minimal_eff_bs, self.opt.eps) if self.dynamic_eps else self.opt.eps
+        self.xi = get_optimal_xi(q_target_var.detach().cpu().numpy(
+                ), self.minimal_eff_bs, self.opt.xi) if self.dynamic_xi else self.opt.xi
         weights = self.get_mse_weights(q_target_var.gather(1, next_actions.long()))
         critic_loss, batch_loss = self.calc_loss(q_observed, q_target, weights.to(self.device))
         y, mu, std = q_target, q_observed, q_observed_std
@@ -372,7 +372,7 @@ class IV_LossAttDQN(LossAttDQN):
         super().__init__(opt, action_spec, observation_spec, num_ensemble, net_seed, device, settings)
 
     def iv_weights(self, variance):
-        weights = (1. / (variance+self.eps))
+        weights = (1. / (variance+self.xi))
         weights /= weights.sum(0)
         return weights
 

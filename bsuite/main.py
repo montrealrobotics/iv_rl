@@ -45,12 +45,12 @@ parser.add_argument("--num_workers", default=3,
                     help="Number of parallel threads to run")
 parser.add_argument("--net_seed", default=42, type=int,
                     help="set seed for reproducibility")
-parser.add_argument("--dynamic_eps", type=str2bool, nargs='?',
+parser.add_argument("--dynamic_xi", type=str2bool, nargs='?',
                         const=True, default=False,
-                        help="whether to use calculated eps using minimum effective batch size")
+                        help="whether to use calculated xi using minimum effective batch size")
 parser.add_argument("--minimal_eff_bs_ratio", type=float, default=1.0, 
                     help="Minimal Effective Batch Ratio for calculating Policy Improvement Noise")
-parser.add_argument("--eps", type=float, default=5.,
+parser.add_argument("--xi", type=float, default=5.,
                     help="Minimum Variance value")
 parser.add_argument("--mask_prob", default=1.0, type=float,
                     help="how samples are masked to generate diversity across the ensemble")
@@ -88,15 +88,15 @@ save_path = os.path.join(args.save_path, args.env.split("/")[0], "%s_bs_%d_mask_
 drop_prob = 0
 if args.model  == 'DQN':
     from bsuite.models.agent import DQN as Agent
-elif args.model == 'ProbSAC':
+elif args.model == 'VarDQN':
     from bsuite.models.agent import LossAttDQN as Agent
-elif args.model == 'IV_ProbSAC':
+elif args.model == 'IV_VarDQN':
     from bsuite.models.agent import IV_LossAttDQN as Agent
 elif args.model == 'BootstrapDQN':
     from bsuite.models.agent_bootdqn import BootstrapDQN as Agent
 elif args.model == 'EnsembleDQN':
     from bsuite.models.agent_bootdqn import EnsembleDQN as Agent
-elif args.model == "ProbEnsembleDQN":
+elif args.model == "VarEnsembleDQN":
     from bsuite.models.agent_bootdqn import LakshmiBootDQN as Agent
 elif args.model == 'IV_EnsembleDQN':
     from bsuite.models.agent_bootdqn import IV_DQN as Agent
@@ -104,7 +104,7 @@ elif args.model == "IV_BootstrapDQN":
     from bsuite.models.agent_bootdqn import IV_BootstrapDQN as Agent
 elif args.model == "SunriseDQN":
     from bsuite.models.agent_bootdqn import SunriseDQN as Agent
-elif args.model in ["IV_ProbEnsembleDQN", "IV_DQN"]:
+elif args.model in ["IV_VarEnsembleDQN", "IV_DQN"]:
     from bsuite.models.agent_bootdqn import IV_LakshmiBootDQN as Agent
 else:
     print('This agent is not implemented!!')
@@ -144,7 +144,7 @@ def run(bsuite_id: str) -> str:
                 'epsilon_min': 0.05, 'gamma': 0.99, 'buffer_size': 2 ** 16, 'lr': 1e-3, 'qnet_settings': qnet_settings,
                 'start_optimization': 64, 'update_qnet_every': 2, 'update_target_every': 50, 'ddqn': False, 'n_steps': 4,
                 'duelling_dqn': False, 'prioritized_buffer': False, 'alpha': 0.6, 'beta0': 0.4, 'beta_increment': 1e-6,
-                'dynamic_eps': args.dynamic_eps, 'minimal_eff_bs_ratio': args.minimal_eff_bs_ratio, 'eps': args.eps,
+                'dynamic_xi': args.dynamic_xi, 'minimal_eff_bs_ratio': args.minimal_eff_bs_ratio, 'xi': args.xi,
                 'mask_prob': args.mask_prob}
  
     # if args.agent == 'boot_dqn':

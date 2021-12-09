@@ -11,6 +11,7 @@ import rlkit.torch.pytorch_util as ptu
 from rlkit.core.eval_util import create_stats_ordered_dict
 from rlkit.torch.torch_rl_algorithm import TorchTrainer
 
+
 def get_iv_weights(variances):
     '''
     Returns Inverse Variance weights
@@ -33,12 +34,15 @@ def compute_eff_bs(weights):
 def get_optimal_eps(variances, minimal_size, epsilon_start):
     minimal_size = min(variances.shape[0] - 1, minimal_size)
     if compute_eff_bs(get_iv_weights(variances)) >= minimal_size:
-        return 0        
+        return 0
     fn = lambda x: np.abs(compute_eff_bs(get_iv_weights(variances+np.abs(x))) - minimal_size)
     epsilon = minimize(fn, 0, method='Nelder-Mead', options={'fatol': 1.0, 'maxiter':100})
     eps = np.abs(epsilon.x[0])
     eps = 0 if eps is None else eps
     return eps
+
+
+
 
 
 class EnsembleSAC(TorchTrainer):
@@ -474,7 +478,7 @@ class EnsembleSAC(TorchTrainer):
  
 
 
-class ProbEnsembleSAC(EnsembleSAC):
+class VarEnsembleSAC(EnsembleSAC):
     def __init__(
             self,
             args,
@@ -599,108 +603,3 @@ class ProbEnsembleSAC(EnsembleSAC):
         return q1_pred, q2_pred, q_target, weight_target_Q, eps_critic, qf1_loss, qf2_loss
         
         
-class IV_EnsembleSAC(EnsembleSAC):
-    def __init__(
-            self,
-            args,
-            env,
-            policy,
-            qf1,
-            qf2,
-            target_qf1,
-            target_qf2,
-            num_ensemble,
-            feedback_type,
-            temperature,
-            temperature_act,
-            expl_gamma,
-            log_dir,
-        
-            discount=0.99,
-            reward_scale=1.0,
-
-            policy_lr=1e-3,
-            qf_lr=1e-3,
-            optimizer_class=optim.Adam,
-
-            soft_target_tau=1e-2,
-            target_update_period=1,
-            plotter=None,
-            render_eval_paths=False,
-
-            use_automatic_entropy_tuning=True,
-            target_entropy=None,
-            eps_frac=None,
-            dynamic_eps=False,
-            minimal_eff_bs=None,):
-
-        super().__init__(args,env,policy,qf1,qf2,target_qf1,target_qf2,num_ensemble,feedback_type,temperature,\
-            temperature_act,expl_gamma,log_dir,discount,reward_scale,policy_lr,qf_lr,\
-            optimizer_class,soft_target_tau,target_update_period,plotter,render_eval_paths,\
-            use_automatic_entropy_tuning,target_entropy,eps_frac,dynamic_eps,minimal_eff_bs)
-
-    def iv_weights(self, variance, eps):
-        weights = (1. / (variance+eps))
-        weights /= weights.sum(0)
-        return weights
-
-    def get_weights(self, std, eps, feedback_type):
-        if feedback_type == 0 or feedback_type == 1:
-            weight_target_Q = self.iv_weights(std**2, eps)
-        else:
-            weight_target_Q = self.iv_weights(std**2, eps)
-
-        return weight_target_Q
-
-class IV_ProbEnsembleSAC(ProbEnsembleSAC):
-    def __init__(
-            self,
-            args,
-            env,
-            policy,
-            qf1,
-            qf2,
-            target_qf1,
-            target_qf2,
-            num_ensemble,
-            feedback_type,
-            temperature,
-            temperature_act,
-            expl_gamma,
-            log_dir,
-        
-            discount=0.99,
-            reward_scale=1.0,
-
-            policy_lr=1e-3,
-            qf_lr=1e-3,
-            optimizer_class=optim.Adam,
-
-            soft_target_tau=1e-2,
-            target_update_period=1,
-            plotter=None,
-            render_eval_paths=False,
-
-            use_automatic_entropy_tuning=True,
-            target_entropy=None,
-            eps_frac=None,
-            dynamic_eps=False,
-            minimal_eff_bs=None,):
-
-        super().__init__(args,env,policy,qf1,qf2,target_qf1,target_qf2,num_ensemble,feedback_type,temperature,\
-            temperature_act,expl_gamma,log_dir,discount,reward_scale,policy_lr,qf_lr,\
-            optimizer_class,soft_target_tau,target_update_period,plotter,render_eval_paths,\
-            use_automatic_entropy_tuning,target_entropy,eps_frac,dynamic_eps,minimal_eff_bs)
-
-    def iv_weights(self, variance, eps):
-        weights = (1. / (variance+eps))
-        weights /= weights.sum(0)
-        return weights
-
-    def get_weights(self, std, eps, feedback_type):
-        if feedback_type == 0 or feedback_type == 1:
-            weight_target_Q = self.iv_weights(std**2, eps)
-        else:
-            weight_target_Q = self.iv_weights(std**2, eps)
-
-        return weight_target_Q

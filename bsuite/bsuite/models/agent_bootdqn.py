@@ -33,15 +33,15 @@ def compute_eff_bs(weights):
     #print(eff_bs)
     return eff_bs
 
-def get_optimal_eps(variances, minimal_size, epsilon_start):
+def get_optimal_xi(variances, minimal_size, epsilon_start):
     minimal_size = min(variances.shape[0] - 1, minimal_size)
     if compute_eff_bs(get_iv_weights(variances)) >= minimal_size:
         return 0        
     fn = lambda x: np.abs(compute_eff_bs(get_iv_weights(variances+np.abs(x))) - minimal_size)
     epsilon = minimize(fn, 0, method='Nelder-Mead', options={'fatol': 1.0, 'maxiter':100})
-    eps = np.abs(epsilon.x[0])
-    eps = 0 if eps is None else eps
-    return eps
+    xi = np.abs(epsilon.x[0])
+    xi = 0 if xi is None else xi
+    return xi
 
 
 class BootstrapDQN:
@@ -97,8 +97,8 @@ class BootstrapDQN:
         self.number_steps = 0
         self.ddqn = settings["ddqn"]
 
-        self.eps = settings["eps"]
-        self.dynamic_eps = settings["dynamic_eps"]
+        self.xi = settings["xi"]
+        self.dynamic_xi = settings["dynamic_xi"]
         self.minimal_eff_bs_ratio = settings["minimal_eff_bs_ratio"]
         self.minimal_eff_bs = int(self.batch_size * self.minimal_eff_bs_ratio)
         self.mask_prob = settings["mask_prob"]
@@ -281,13 +281,13 @@ class BootstrapDQN:
             # print(discount.size(), next_q_vals.size(), next_actions.size())
             q_target_var_all = (self.gamma**2) * (discount.repeat(1, self.action_size)**2) * next_q_vals.var(0)
 
-        eff_batch_size_list, eps_list, loss_list = [], [], []        
+        eff_batch_size_list, xi_list, loss_list = [], [], []        
         for i in range(self.num_ensemble):
             # print(next_actions[i].size(), masks.size(), q_targets.size())
             q_target_var = q_target_var_all.gather(1, next_actions[i].unsqueeze(-1).long())[masks[:, i, 0]]
             # print(q_target_var.size())
-            self.eps = get_optimal_eps(q_target_var.detach().cpu().numpy(
-                ), self.minimal_eff_bs, self.eps) if self.dynamic_eps else self.eps
+            self.xi = get_optimal_xi(q_target_var.detach().cpu().numpy(
+                ), self.minimal_eff_bs, self.xi) if self.dynamic_xi else self.xi
             weights = self.get_mse_weights(q_target_var)
             q_observed = self.qnets[i](s0).gather(1, a0.long()).squeeze()[masks[:, i, 0]]
             critic_loss, batch_loss = self.calc_loss(q_observed, q_targets[i][masks[:, i, 0]], weights.to(self.device))
@@ -300,12 +300,12 @@ class BootstrapDQN:
 
             eff_batch_size_list.append(
                 compute_eff_bs(weights.detach().cpu().numpy()))
-            eps_list.append(self.eps)
+            xi_list.append(self.xi)
             # loss_list.append(loss.item())
 
         # Update replay memory
         self.memory.update_priorities(indices, batch_loss)
-        return q_target_var.detach().cpu().numpy(), weights.squeeze().detach().cpu().numpy(), np.mean(eff_batch_size_list), np.mean(eps_list)
+        return q_target_var.detach().cpu().numpy(), weights.squeeze().detach().cpu().numpy(), np.mean(eff_batch_size_list), np.mean(xi_list)
 
     def train_log(self, var, weights, eff_batch_size, eps_list):
         wandb.log({"IV Weights(VAR)": np.var(weights), "IV Weights(Mean)": np.mean(weights),
@@ -473,13 +473,13 @@ class LakshmiBootDQN(BootstrapDQN):
             # print((next_q_vals_std**2 + q_targets**2 - q_targets.mean(0).unsqueeze(-1).repeat(self.num_ensemble,1,1)**2).mean(0).size())
             q_var_mixture = (discount.repeat(1, self.action_size)**2) * (next_q_vals_std**2 + q_targets_all**2 - q_targets_all.mean(0).unsqueeze(0).repeat(self.num_ensemble,1,1)**2).mean(0)
 
-        eff_batch_size_list, eps_list, loss_list = [], [], []        
+        eff_batch_size_list, xi_list, loss_list = [], [], []        
         for i in range(self.num_ensemble):
             # print(next_actions[i].size(), masks.size(), q_targets.size())
             q_target_var = q_var_mixture.gather(1, next_actions[i].unsqueeze(-1).long())[masks[:, i, 0]]
             # print(q_target_var.size())
-            self.eps = get_optimal_eps(q_target_var.detach().cpu().numpy(
-                ), self.minimal_eff_bs, self.eps) if self.dynamic_eps else self.eps
+            self.xi = get_optimal_xi(q_target_var.detach().cpu().numpy(
+                ), self.minimal_eff_bs, self.xi) if self.dynamic_xi else self.xi
             weights = self.get_mse_weights(q_target_var)
             q_observed, q_observed_std = self.qnets[i](s0, is_training=True)
             q_observed = q_observed.gather(1, a0.long()).squeeze()#[masks[:, i, 0]]
@@ -499,12 +499,12 @@ class LakshmiBootDQN(BootstrapDQN):
 
             eff_batch_size_list.append(
                 compute_eff_bs(weights.detach().cpu().numpy()))
-            eps_list.append(self.eps)
+            xi_list.append(self.xi)
             # loss_list.append(loss.item())
 
         # Update replay memory
         self.memory.update_priorities(indices, batch_loss)
-        return q_target_var.detach().cpu().numpy(), weights.squeeze().detach().cpu().numpy(), np.mean(eff_batch_size_list), np.mean(eps_list)
+        return q_target_var.detach().cpu().numpy(), weights.squeeze().detach().cpu().numpy(), np.mean(eff_batch_size_list), np.mean(xi_list)
 
 
 class IV_BootstrapDQN(BootstrapDQN):
@@ -520,7 +520,7 @@ class IV_BootstrapDQN(BootstrapDQN):
         super().__init__(opt, action_spec, observation_spec, num_ensemble, net_seed, device, settings)
 
     def iv_weights(self, variance):
-        weights = (1. / (variance+self.eps))
+        weights = (1. / (variance+self.xi))
         weights /= weights.sum(0)
         return weights
 
@@ -541,7 +541,7 @@ class IV_DQN(EnsembleDQN):
         super().__init__(opt, action_spec, observation_spec, num_ensemble, net_seed, device, settings)
 
     def iv_weights(self, variance):
-        weights = (1. / (variance+self.eps))
+        weights = (1. / (variance+self.xi))
         weights /= weights.sum(0)
         return weights
 
@@ -561,7 +561,7 @@ class IV_LakshmiBootDQN(LakshmiBootDQN):
         super().__init__(opt, action_spec, observation_spec, num_ensemble, net_seed, device, settings)
 
     def iv_weights(self, variance):
-        weights = (1. / (variance+self.eps))
+        weights = (1. / (variance+self.xi))
         weights /= weights.sum(0)
         return weights
 

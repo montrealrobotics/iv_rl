@@ -36,15 +36,15 @@ def compute_eff_bs(weights):
     #print(eff_bs)
     return eff_bs
 
-def get_optimal_eps(variances, minimal_size, epsilon_start):
+def get_optimal_xi(variances, minimal_size, epsilon_start):
     minimal_size = min(variances.shape[0] - 1, minimal_size)
     if compute_eff_bs(get_iv_weights(variances)) >= minimal_size:
         return 0        
     fn = lambda x: np.abs(compute_eff_bs(get_iv_weights(variances+np.abs(x))) - minimal_size)
     epsilon = minimize(fn, 0, method='Nelder-Mead', options={'fatol': 1.0, 'maxiter':100})
-    eps = np.abs(epsilon.x[0])
-    eps = 0 if eps is None else eps
-    return eps
+    xi = np.abs(epsilon.x[0])
+    xi = 0 if xi is None else xi
+    return xi
 
 
 
@@ -303,7 +303,7 @@ class SACTrainer(TorchTrainer, LossFunction):
         )
 
 
-class ProbSACTrainer(TorchTrainer, LossFunction):
+class VarSACTrainer(TorchTrainer, LossFunction):
     def __init__(
             self,
             args,
@@ -463,8 +463,8 @@ class ProbSACTrainer(TorchTrainer, LossFunction):
 
         # print(q_logvar_new_actions_both.size(), q_argmin.size() )
         q_var_new_actions = torch.exp(q_logvar_new_actions_both.squeeze().gather(1, q_argmin))
-        eps_actor = get_optimal_eps(q_var_new_actions.detach().cpu().numpy(),self.args.minimal_eff_bs, 0) if self.args.dynamic_eps else self.args.eps_frac #* torch.median(std_Q**2).item()
-        weight_actor_Q = self.get_weights(q_var_new_actions.detach(), eps_actor) #2*torch.sigmoid(-std_Q* self.temperature_act)
+        xi_actor = get_optimal_xi(q_var_new_actions.detach().cpu().numpy(),self.args.minimal_eff_bs, 0) if self.args.dynamic_xi else self.args.eps_frac #* torch.median(std_Q**2).item()
+        weight_actor_Q = self.get_weights(q_var_new_actions.detach(), xi_actor) #2*torch.sigmoid(-std_Q* self.temperature_act)
         policy_loss = ((alpha*log_pi - q_new_actions)* weight_actor_Q.detach()).mean()
 
         """
@@ -490,8 +490,8 @@ class ProbSACTrainer(TorchTrainer, LossFunction):
         q1_target = self.reward_scale * rewards + (1. - terminals) * self.discount * target_qf1
         q2_target = self.reward_scale * rewards + (1. - terminals) * self.discount * target_qf2
 
-        eps_critic = get_optimal_eps((q_target_var).detach().cpu().numpy(),self.args.minimal_eff_bs, 0) if self.args.dynamic_eps else self.args.eps_frac #* torch.median(std_Q_critic**2).item()
-        weight_target_Q = self.get_weights(q_target_var, eps_critic) 
+        xi_critic = get_optimal_xi((q_target_var).detach().cpu().numpy(),self.args.minimal_eff_bs, 0)
+        weight_target_Q = self.get_weights(q_target_var, xi_critic) 
         q_target = self.reward_scale * rewards + (1. - terminals) * self.discount * target_q_values
         qf1_loss = self.qf_criterion(q1_pred, q_target.detach()) * (weight_target_Q.detach())
         qf2_loss = self.qf_criterion(q2_pred, q_target.detach()) * (weight_target_Q.detach())
@@ -579,42 +579,3 @@ class ProbSACTrainer(TorchTrainer, LossFunction):
         )
 
 
-class IV_ProbSAC(ProbSACTrainer):
-    def __init__(
-            self,
-            args,
-            env,
-            policy,
-            qf1,
-            qf2,
-            target_qf1,
-            target_qf2,
-
-            discount=0.99,
-            reward_scale=1.0,
-
-            policy_lr=1e-3,
-            qf_lr=1e-3,
-            optimizer_class=optim.Adam,
-
-            soft_target_tau=1e-2,
-            target_update_period=1,
-            plotter=None,
-            render_eval_paths=False,
-
-            use_automatic_entropy_tuning=True,
-            target_entropy=None,
-    ):
-        super().__init__(args,env,policy,qf1,qf2,target_qf1,target_qf2,\
-            discount,reward_scale,policy_lr,qf_lr,optimizer_class,\
-            soft_target_tau,target_update_period,plotter,render_eval_paths,\
-            use_automatic_entropy_tuning,target_entropy)
-
-    def iv_weights(self, variance, eps):
-        weights = (1. / (variance+eps))
-        weights /= weights.sum(0)
-        return weights
-
-    def get_weights(self, var, eps):
-        weight_target_Q = self.iv_weights(var, eps)
-        return weight_target_Q

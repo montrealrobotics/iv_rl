@@ -34,15 +34,15 @@ def compute_eff_bs(weights):
     #print(eff_bs)
     return eff_bs
 
-def get_optimal_eps(variances, minimal_size, epsilon_start):
+def get_optimal_xi(variances, minimal_size, epsilon_start):
     minimal_size = min(variances.shape[0] - 1, minimal_size)
     if compute_eff_bs(get_iv_weights(variances)) >= minimal_size:
         return 0        
     fn = lambda x: np.abs(compute_eff_bs(get_iv_weights(variances+np.abs(x))) - minimal_size)
     epsilon = minimize(fn, 0, method='Nelder-Mead', options={'fatol': 1.0, 'maxiter':100})
-    eps = np.abs(epsilon.x[0])
-    eps = 0 if eps is None else eps
-    return eps
+    xi = np.abs(epsilon.x[0])
+    xi = 0 if xi is None else xi
+    return xi
 
 
 
