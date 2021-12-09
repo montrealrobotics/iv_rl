@@ -76,8 +76,8 @@ class EnsembleSAC(TorchTrainer):
 
             use_automatic_entropy_tuning=True,
             target_entropy=None,
-            eps_frac=None,
-            dynamic_eps=False,
+            xi=None,
+            dynamic_xi=False,
             minimal_eff_bs=None,
     ):
         super().__init__()
@@ -147,8 +147,8 @@ class EnsembleSAC(TorchTrainer):
         self.eval_statistics = OrderedDict()
         self._n_train_steps_total = 0
         self._need_to_update_eval_statistics = True
-        self.eps_frac = eps_frac 
-        self.dynamic_eps = dynamic_eps
+        self.xi = xi 
+        self.dynamic_xi = dynamic_xi
         self.minimal_eff_bs = minimal_eff_bs
 
     def get_variance(self, obs, update_type):
@@ -199,8 +199,8 @@ class EnsembleSAC(TorchTrainer):
 
         std_Q_critic = std_Q_critic_list[en_index].gather(1, target_q_argmin)[mask]
 
-        eps_critic = get_optimal_eps((std_Q_critic**2).detach().cpu().numpy(),self.minimal_eff_bs, 0) if self.dynamic_eps else self.eps_frac #* torch.median(std_Q_critic**2).item()
-        weight_target_Q = self.get_weights(std_Q_critic, eps_critic, self.feedback_type) #torch.ones(std_Q_critic_list[en_index].size()).cuda() / std_Q_critic_list[en_index].size()[0] #torch.sigmoid(-std_Q_critic_list[en_index]*self.temperature) + 0.5
+        xi_critic = get_optimal_eps((std_Q_critic**2).detach().cpu().numpy(),self.minimal_eff_bs, 0) if self.dynamic_xi else self.xi #* torch.median(std_Q_critic**2).item()
+        weight_target_Q = self.get_weights(std_Q_critic, xi_critic, self.feedback_type) #torch.ones(std_Q_critic_list[en_index].size()).cuda() / std_Q_critic_list[en_index].size()[0] #torch.sigmoid(-std_Q_critic_list[en_index]*self.temperature) + 0.5
         q_target = self.reward_scale * rewards + (1. - terminals) * self.discount * target_q_values
         # print(q1_pred.size(), q_target.size(), weight_target_Q.size())
         qf1_loss = self.qf_criterion(q1_pred[mask], q_target[mask].detach())  * (weight_target_Q.detach())
@@ -208,7 +208,7 @@ class EnsembleSAC(TorchTrainer):
         qf1_loss = qf1_loss.sum()
         qf2_loss = qf2_loss.sum()
 
-        return q1_pred, q2_pred, q_target, weight_target_Q, eps_critic, qf1_loss, qf2_loss
+        return q1_pred, q2_pred, q_target, weight_target_Q, xi_critic, qf1_loss, qf2_loss
         
         
     def train_from_torch(self, batch):
@@ -225,9 +225,9 @@ class EnsembleSAC(TorchTrainer):
         tot_alpha, tot_alpha_loss = 0, 0
         tot_variance_actor, tot_weights_actor = [], []
         tot_variance_critic, tot_weights_critic = [], []
-        tot_eps_critic, tot_ebs_critic = 0, 0
+        tot_xi_critic, tot_ebs_critic = 0, 0
         
-        tot_eps_actor, tot_ebs_actor = 0, 0
+        tot_xi_actor, tot_ebs_actor = 0, 0
 
         std_Q_actor_list = self.get_variance(obs=obs, update_type=0)#.unsqueeze(1)
         std_Q_critic_list = self.get_variance(obs=next_obs, update_type=1)#.unsqueeze(1)
@@ -258,8 +258,8 @@ class EnsembleSAC(TorchTrainer):
             #print(q_new_actions.size(), q_argmin.size(), qf_next.size())
             #print(std_Q_actor_list[en_index].size(), q_argmin.size(), mask.size())
             std_Q = std_Q_actor_list[en_index].gather(1, q_argmin)[mask]      
-            eps_actor = get_optimal_eps((std_Q**2).detach().cpu().numpy(),self.minimal_eff_bs, 0) if self.dynamic_eps else self.eps_frac #* torch.median(std_Q**2).item()
-            weight_actor_Q = self.get_weights(std_Q, eps_actor, self.feedback_type) #2*torch.sigmoid(-std_Q* self.temperature_act)
+            xi_actor = get_optimal_xi((std_Q**2).detach().cpu().numpy(),self.minimal_eff_bs, 0) if self.dynamic_xi else self.xi #* torch.median(std_Q**2).item()
+            weight_actor_Q = self.get_weights(std_Q, xi_actor, self.feedback_type) #2*torch.sigmoid(-std_Q* self.temperature_act)
             policy_loss = (alpha*log_pi[mask] - q_new_actions[mask] - self.expl_gamma * std_Q) * weight_actor_Q.detach()
             policy_loss = policy_loss.sum()
 
@@ -311,8 +311,8 @@ class EnsembleSAC(TorchTrainer):
             tot_weights_critic.extend(weight_target_Q)
             tot_ebs_actor += compute_eff_bs(weight_actor_Q.detach().cpu().numpy()) * (1/self.num_ensemble)            
             tot_ebs_critic += compute_eff_bs(weight_target_Q.detach().cpu().numpy()) * (1/self.num_ensemble)
-            tot_eps_actor += eps_actor * (1/self.num_ensemble)
-            tot_eps_critic += eps_critic * (1/self.num_ensemble)
+            # tot_xi_actor += xi_actor * (1/self.num_ensemble)
+            # tot_xi_critic += xi_critic * (1/self.num_ensemble)
         """
         Save some statistics for eval
         """
@@ -383,14 +383,14 @@ class EnsembleSAC(TorchTrainer):
                 'Median Weights (Critic)',
                 np.median(torch.stack(tot_weights_critic).cpu().numpy()),   
             ))
-            self.eval_statistics.update(create_stats_ordered_dict(
-                'Avg EPS (Actor)',
-                tot_eps_actor,
-            ))
-            self.eval_statistics.update(create_stats_ordered_dict(
-                'Avg EPS (Critic)',
-                tot_eps_critic,
-            ))
+            # self.eval_statistics.update(create_stats_ordered_dict(
+            #     'Avg EPS (Actor)',
+            #     tot_xi_actor,
+            # ))
+            # self.eval_statistics.update(create_stats_ordered_dict(
+            #     'Avg EPS (Critic)',
+            #     tot_xi_critic,
+            # ))
             self.eval_statistics.update(create_stats_ordered_dict(
                 'Avg EBS (Actor)',
                 tot_ebs_actor,
@@ -509,14 +509,14 @@ class VarEnsembleSAC(EnsembleSAC):
 
             use_automatic_entropy_tuning=True,
             target_entropy=None,
-            eps_frac=None,
-            dynamic_eps=False,
+            xi=None,
+            dynamic_xi=False,
             minimal_eff_bs=None,):
 
         super().__init__(args,env,policy,qf1,qf2,target_qf1,target_qf2,num_ensemble,feedback_type,temperature,\
             temperature_act,expl_gamma,log_dir,discount,reward_scale,policy_lr,qf_lr,\
             optimizer_class,soft_target_tau,target_update_period,plotter,render_eval_paths,\
-            use_automatic_entropy_tuning,target_entropy,eps_frac,dynamic_eps,minimal_eff_bs)
+            use_automatic_entropy_tuning,target_entropy,xi,dynamic_xi,minimal_eff_bs)
 
     def iv_weights(self, variance, eps):
         weights = (1. / (variance+eps))
@@ -586,8 +586,8 @@ class VarEnsembleSAC(EnsembleSAC):
 #        print(std_Q_critic_list[en_index].size(), target_q_argmin.size(), mask.size())
         std_Q_critic = std_Q_critic_list[en_index].gather(1, target_q_argmin)[mask]
 
-        eps_critic = get_optimal_eps((std_Q_critic**2).detach().cpu().numpy(),self.minimal_eff_bs, 0) if self.dynamic_eps else self.eps_frac #* torch.median(std_Q_critic**2).item()
-        weight_target_Q = self.get_weights(std_Q_critic, eps_critic, self.feedback_type) #torch.ones(std_Q_critic_list[en_index].size()).cuda() / std_Q_critic_list[en_index].size()[0] #torch.sigmoid(-std_Q_critic_list[en_index]*self.temperature) + 0.5
+        xi_critic = get_optimal_eps((std_Q_critic**2).detach().cpu().numpy(),self.minimal_eff_bs, 0) if self.dynamic_xi else self.xi #* torch.median(std_Q_critic**2).item()
+        weight_target_Q = self.get_weights(std_Q_critic, xi_critic, self.feedback_type) #torch.ones(std_Q_critic_list[en_index].size()).cuda() / std_Q_critic_list[en_index].size()[0] #torch.sigmoid(-std_Q_critic_list[en_index]*self.temperature) + 0.5
         q_target = self.reward_scale * rewards + (1. - terminals) * self.discount * target_q_values
         q1_target = self.reward_scale * rewards + (1. - terminals) * self.discount * target_qf1
         q2_target = self.reward_scale * rewards + (1. - terminals) * self.discount * target_qf2
@@ -600,6 +600,6 @@ class VarEnsembleSAC(EnsembleSAC):
         qf1_loss = qf1_loss.sum() + self.args.loss_att_weight * lossatt_q1
         qf2_loss = qf2_loss.sum() + self.args.loss_att_weight * lossatt_q2
 
-        return q1_pred, q2_pred, q_target, weight_target_Q, eps_critic, qf1_loss, qf2_loss
+        return q1_pred, q2_pred, q_target, weight_target_Q, xi_critic, qf1_loss, qf2_loss
         
         

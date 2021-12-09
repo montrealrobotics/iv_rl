@@ -122,7 +122,7 @@ def ensemble_experiment(model, variant):
         temperature_act=0,
         expl_gamma=0,
         log_dir=variant['log_dir'],
-        eps_frac=variant['eps_frac'],
+        xi=variant['xi'],
         dynamic_xi=variant['dynamic_xi'],
         minimal_eff_bs=variant['minimal_eff_bs'],
         **variant['trainer_kwargs']
@@ -259,7 +259,7 @@ def run_sac(model, args):
     log_dir = setup_logger_custom(exp_name, variant=variant)
             
     variant['log_dir'] = log_dir
-    variant["eps_frac"] = args.eps_frac
+    variant["xi"] = args.xi
     variant['dynamic_xi'] = args.dynamic_xi
     variant['minimal_eff_bs'] = args.minimal_eff_bs
     variant['env_seed'] = args.env_seed

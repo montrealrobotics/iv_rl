@@ -45,7 +45,7 @@ class SunriseSAC(TorchTrainer):
 
             use_automatic_entropy_tuning=True,
             target_entropy=None,
-            eps_frac=None,
+            xi=None,
             dynamic_xi=False,
             minimal_eff_bs=None,
     ):
@@ -444,14 +444,14 @@ class Sunrise_VarEnsembleSAC(VarEnsembleSAC):
 
             use_automatic_entropy_tuning=True,
             target_entropy=None,
-            eps_frac=None,
+            xi=None,
             dynamic_xi=False,
             minimal_eff_bs=None,):
 
         super().__init__(args,env,policy,qf1,qf2,target_qf1,target_qf2,num_ensemble,feedback_type,temperature,\
             temperature_act,expl_gamma,log_dir,discount,reward_scale,policy_lr,qf_lr,\
             optimizer_class,soft_target_tau,target_update_period,plotter,render_eval_paths,\
-            use_automatic_entropy_tuning,target_entropy,eps_frac,dynamic_xi,minimal_eff_bs)
+            use_automatic_entropy_tuning,target_entropy,xi,dynamic_xi,minimal_eff_bs)
 
 
 

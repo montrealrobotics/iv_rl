@@ -463,7 +463,7 @@ class VarSACTrainer(TorchTrainer, LossFunction):
 
         # print(q_logvar_new_actions_both.size(), q_argmin.size() )
         q_var_new_actions = torch.exp(q_logvar_new_actions_both.squeeze().gather(1, q_argmin))
-        xi_actor = get_optimal_xi(q_var_new_actions.detach().cpu().numpy(),self.args.minimal_eff_bs, 0) if self.args.dynamic_xi else self.args.eps_frac #* torch.median(std_Q**2).item()
+        xi_actor = get_optimal_xi(q_var_new_actions.detach().cpu().numpy(),self.args.minimal_eff_bs, 0) if self.args.dynamic_xi else self.args.xi #* torch.median(std_Q**2).item()
         weight_actor_Q = self.get_weights(q_var_new_actions.detach(), xi_actor) #2*torch.sigmoid(-std_Q* self.temperature_act)
         policy_loss = ((alpha*log_pi - q_new_actions)* weight_actor_Q.detach()).mean()
 

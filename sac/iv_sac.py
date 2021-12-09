@@ -76,25 +76,25 @@ class IV_EnsembleSAC(EnsembleSAC):
 
             use_automatic_entropy_tuning=True,
             target_entropy=None,
-            eps_frac=None,
-            dynamic_eps=False,
+            xi=None,
+            dynamic_xi=False,
             minimal_eff_bs=None,):
 
         super().__init__(args,env,policy,qf1,qf2,target_qf1,target_qf2,num_ensemble,feedback_type,temperature,\
             temperature_act,expl_gamma,log_dir,discount,reward_scale,policy_lr,qf_lr,\
             optimizer_class,soft_target_tau,target_update_period,plotter,render_eval_paths,\
-            use_automatic_entropy_tuning,target_entropy,eps_frac,dynamic_eps,minimal_eff_bs)
+            use_automatic_entropy_tuning,target_entropy,xi,dynamic_xi,minimal_eff_bs)
 
-    def iv_weights(self, variance, eps):
-        weights = (1. / (variance+eps))
+    def iv_weights(self, variance, xi):
+        weights = (1. / (variance+xi))
         weights /= weights.sum(0)
         return weights
 
-    def get_weights(self, std, eps, feedback_type):
+    def get_weights(self, std, xi, feedback_type):
         if feedback_type == 0 or feedback_type == 1:
-            weight_target_Q = self.iv_weights(std**2, eps)
+            weight_target_Q = self.iv_weights(std**2, xi)
         else:
-            weight_target_Q = self.iv_weights(std**2, eps)
+            weight_target_Q = self.iv_weights(std**2, xi)
 
         return weight_target_Q
 
@@ -129,25 +129,25 @@ class IV_VarEnsembleSAC(VarEnsembleSAC):
 
             use_automatic_entropy_tuning=True,
             target_entropy=None,
-            eps_frac=None,
+            xi=None,
             dynamic_xi=False,
             minimal_eff_bs=None,):
 
         super().__init__(args,env,policy,qf1,qf2,target_qf1,target_qf2,num_ensemble,feedback_type,temperature,\
             temperature_act,expl_gamma,log_dir,discount,reward_scale,policy_lr,qf_lr,\
             optimizer_class,soft_target_tau,target_update_period,plotter,render_eval_paths,\
-            use_automatic_entropy_tuning,target_entropy,eps_frac,dynamic_xi,minimal_eff_bs)
+            use_automatic_entropy_tuning,target_entropy,xi,dynamic_xi,minimal_eff_bs)
 
-    def iv_weights(self, variance, eps):
-        weights = (1. / (variance+eps))
+    def iv_weights(self, variance, xi):
+        weights = (1. / (variance+xi))
         weights /= weights.sum(0)
         return weights
 
-    def get_weights(self, std, eps, feedback_type):
+    def get_weights(self, std, xi, feedback_type):
         if feedback_type == 0 or feedback_type == 1:
-            weight_target_Q = self.iv_weights(std**2, eps)
+            weight_target_Q = self.iv_weights(std**2, xi)
         else:
-            weight_target_Q = self.iv_weights(std**2, eps)
+            weight_target_Q = self.iv_weights(std**2, xi)
 
         return weight_target_Q
 
@@ -185,12 +185,12 @@ class IV_VarSAC(VarSACTrainer):
             soft_target_tau,target_update_period,plotter,render_eval_paths,\
             use_automatic_entropy_tuning,target_entropy)
 
-    def iv_weights(self, variance, eps):
-        weights = (1. / (variance+eps))
+    def iv_weights(self, variance, xi):
+        weights = (1. / (variance+xi))
         weights /= weights.sum(0)
         return weights
 
-    def get_weights(self, var, eps):
-        weight_target_Q = self.iv_weights(var, eps)
+    def get_weights(self, var, xi):
+        weight_target_Q = self.iv_weights(var, xi)
         return weight_target_Q
 
