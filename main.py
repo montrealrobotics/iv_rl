@@ -8,12 +8,13 @@ import torch.optim as optim
 import torch.nn.functional as F
 
 from dqn import * 
-from sac import *
+# from sac import *
 from utils import *
 from config import config 
-from codecarbon import EmissionsTracker
-tracker = EmissionsTracker()
-tracker.start()
+# from codecarbon import EmissionsTracker
+# tracker = EmissionsTracker()
+# tracker.start()
+from island_navigation import * 
 
 import os 
 import time
@@ -43,29 +44,32 @@ model_dict = {"DQN"                        : DQNAgent,
               "UWAC_VarEnsembleDQN"        : UWAC_LakshmiBootstrapDQN,
 
 
-              "SAC"                        : SACTrainer,
-              "VarSAC"                     : VarSACTrainer,
-              "IV_VarSAC"                  : IV_VarSAC,
+            #   "SAC"                        : SACTrainer,
+            #   "VarSAC"                     : VarSACTrainer,
+            #   "IV_VarSAC"                  : IV_VarSAC,
 
-              "EnsembleSAC"                : EnsembleSAC,
-              "IV_EnsembleSAC"             : IV_EnsembleSAC,
-              "VarEnsembleSAC"             : VarEnsembleSAC,
-              "IV_SAC"                     : IV_VarEnsembleSAC,
-              "IV_VarEnsembleSAC"          : IV_VarEnsembleSAC,
+            #   "EnsembleSAC"                : EnsembleSAC,
+            #   "IV_EnsembleSAC"             : IV_EnsembleSAC,
+            #   "VarEnsembleSAC"             : VarEnsembleSAC,
+            #   "IV_SAC"                     : IV_VarEnsembleSAC,
+            #   "IV_VarEnsembleSAC"          : IV_VarEnsembleSAC,
 
-              "SunriseSAC"                 : SunriseSAC,
-              "Sunrise_VarEnsembleSAC"     : Sunrise_VarEnsembleSAC,
+            #   "SunriseSAC"                 : SunriseSAC,
+            #   "Sunrise_VarEnsembleSAC"     : Sunrise_VarEnsembleSAC,
               
-              "UWACSAC"                    : UWACSAC,
-              "UWAC_VarEnsembleSAC"        : UWAC_VarEnsembleSAC
+            #   "UWACSAC"                    : UWACSAC,
+            #   "UWAC_VarEnsembleSAC"        : UWAC_VarEnsembleSAC
               }
 
 
 
 
 parser = argparse.ArgumentParser(description="DQN options")
-parser.add_argument("--env", type=str, default="LunarLander-v2",
+parser.add_argument("--env", type=str, default="IslandNavigation",
                     help="Gym environment")
+parser.add_argument("--use_safety_info", type=str2bool, nargs='?',
+                        const=True, default=False,
+                        help="whether to use calculated eps using minimum effective batch size")
 parser.add_argument("--model", type=str, choices=model_dict.keys(), required=True,
                     help="which RL algorithm to run??")
 parser.add_argument("--lr", type=float, default=5e-4,
@@ -204,7 +208,7 @@ if "Mean_Target" in opt.model:
     opt.mean_target = True
 
 if __name__ == "__main__":
-    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+    device = torch.device("cpu") #torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
     try:
         os.makedirs(opt.log_dir)
     except:
@@ -212,11 +216,16 @@ if __name__ == "__main__":
 
     Model = model_dict[opt.model]
     if "sac" not in opt.model.lower():
-        env = gym.make(opt.env)
-        env.seed(opt.env_seed)
+        if opt.env == "IslandNavigation":
+            env = IslandNavigationEnvironment()
+            print("Island Navigation environment initiated")
+        else:
+            env = gym.make(opt.env)
+            env.seed(opt.env_seed)
         agent = Model(env, opt, device=device)
+        print("Model Initialized")
         agent.train(n_episodes=opt.num_episodes, eps_decay=opt.eps_decay)
     else:
         run_sac(Model, opt)
 
-tracker.stop()
+# tracker.stop()

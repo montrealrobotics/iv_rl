@@ -27,8 +27,11 @@ class DQNAgent():
         """
         self.env = env
         self.opt = opt
-        self.state_size = env.observation_space.shape[0]
-        self.action_size = env.action_space.n
+        if self.opt.use_safety_info:
+            self.state_size = np.array(env.observation_space()["board"].shape).prod() + 1
+        else:
+            self.state_size = np.array(env.observation_space()["board"].shape).prod()
+        self.action_size = env.action_space().maximum + 1
         self.seed = random.seed(opt.env_seed)
         self.test_scores = []
         self.device = device
@@ -49,11 +52,11 @@ class DQNAgent():
     def step(self, state, action, reward, next_state, done):
         # Save experience in replay memory
         if self.mask:
-	        mask = self.random_state.binomial(1, self.opt.mask_prob, self.opt.num_nets)
-	        self.memory.add(state, action, reward, next_state, done, mask)
+            mask = self.random_state.binomial(1, self.opt.mask_prob, self.opt.num_nets)
+            self.memory.add(state, action, reward, next_state, done, mask)
         else:
             self.memory.add(state, action, reward, next_state, done)
-	        
+
         # Learn every UPDATE_EVERY time steps.
         self.t_step = (self.t_step + 1) % self.opt.update_every
         if self.t_step == 0:
@@ -62,8 +65,8 @@ class DQNAgent():
                 experiences = self.memory.sample()
                 return self.learn(experiences, self.opt.gamma)
             else:
-            	return None
-
+                return None
+                
     def act(self, state, eps=0., is_train=False):
         """Returns actions for given state as per current policy.
         
@@ -136,8 +139,7 @@ class DQNAgent():
     def weighted_mse(self, inputs, targets, weights, mask = None):
         loss = weights*((targets - inputs)**2)
         if mask is not None:
-        	loss *= mask
-        #print(loss.size())
+            loss *= mask
         return loss.sum(0)
 
 
@@ -157,14 +159,24 @@ class DQNAgent():
         scores_window = deque(maxlen=100)  # last 100 scores
         eps = eps_start                    # initialize epsilon
         for i_episode in range(1, n_episodes+1):
-            state = self.env.reset()
+            _, _, _, state = self.env.reset()
+            state = state["board"].ravel()
+            if self.opt.use_safety_info:
+                safety = self.env.environment_data['safety']
+                state = np.array(list(state) + [safety])
             score, ep_var, ep_weights, eff_bs_list, xi_list, ep_Q, ep_loss = 0, [], [], [], [], [], []   # list containing scores from each episode
             for t in range(max_t):
                 action, Q = self.act(state, eps, is_train=True)
-                next_state, reward, done, _ = self.env.step(action)
-                logs = self.step(state, action, reward, next_state, done)
+                _, reward, not_done, next_state = self.env.step(action)
+                if reward is None:
+                    reward = 0
+                next_state = next_state['board'].ravel()
+                if self.opt.use_safety_info:
+                    safety = self.env.environment_data['safety']
+                    next_state = np.array(list(next_state) + [safety])
+                logs = self.step(state, action, reward, next_state, not not_done)
                 state = next_state
-                if done:
+                if not not_done:
                     reward += self.opt.end_reward
                 score += reward
                 if logs is not None:
@@ -177,7 +189,7 @@ class DQNAgent():
                     #     pass
                 ep_Q.append(Q)
                 ep_loss.append(self.loss)
-                if done:
+                if not not_done:
                     break 
 
             #wandb.log({"V(s) (VAR)": np.var(ep_Q), "V(s) (Mean)": np.mean(ep_Q),
@@ -206,14 +218,24 @@ class DQNAgent():
     def test(self, episode, num_trials=5, max_t=1000):
         score_list, variance_list = [], []
         #for i in range(num_trials):
-        state = self.env.reset()
+        _, _, _, state = self.env.reset()
+        state = state["board"].ravel()
+        if self.opt.use_safety_info:
+            safety = self.env.environment_data['safety']
+            state = np.array(list(state) + [safety])
         score = 0
         for t in range(max_t):
             action, _ = self.act(state, -1)
-            next_state, reward, done, _ = self.env.step(action)
+            _, reward, not_done, next_state = self.env.step(action)
+            next_state = next_state["board"].ravel()
+            if self.opt.use_safety_info:
+                safety = self.env.environment_data['safety']
+                next_state = np.array(list(next_state) + [safety])
+            if reward is None:
+                reward = 0
             state = next_state
             score += reward
-            if done:
+            if not not_done:
                 break
         self.test_scores.append(score)
         #wandb.log({"Test Environment (Moving Average Return/100 episodes)": np.mean(self.test_scores[-100:]),
@@ -293,8 +315,8 @@ class LossAttDQN(DQNAgent):
         return torch.exp(Q_log_var).detach().cpu().numpy(), weights.detach().cpu().numpy(), eff_batch_size, self.xi
 
     def get_mse_weights(self, variance):
-    	weights = torch.ones(variance.size()).to(self.device) / self.opt.batch_size
-    	return weights
+        weights = torch.ones(variance.size()).to(self.device) / self.opt.batch_size
+        return weights
 
     def train_log(self, var, weights, eff_batch_size, eps_list):
         wandb.log({"Variance(Q) (VAR)": np.var(var), "Variance(Q) (Mean)": np.mean(var),\
