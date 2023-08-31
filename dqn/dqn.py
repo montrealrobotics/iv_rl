@@ -206,7 +206,7 @@ class DQNAgent():
             scores_window.append(score)        # save most recent score
             scores.append(score)               # save most recent score
             eps = max(eps_end, eps_decay*eps)  # decrease epsilon
-            #wandb.log({"Moving Average Return/100episode": np.mean(scores_window)})
+            wandb.log({"Moving Average Return/100episode": np.mean(scores_window)})
             #if np.mean(self.test_scores[-100:]) >= self.opt.goal_score and flag:
             #    flag = 0 
             #    wandb.log({"EpisodeSolved": i_episode}, commit=False)
@@ -238,8 +238,8 @@ class DQNAgent():
             if not not_done:
                 break
         self.test_scores.append(score)
-        #wandb.log({"Test Environment (Moving Average Return/100 episodes)": np.mean(self.test_scores[-100:]),
-        #           "Test Environment Return": score}, step=episode)
+        wandb.log({"Test Environment (Moving Average Return/100 episodes)": np.mean(self.test_scores[-100:]),
+                  "Test Environment Return": score}, step=episode)
         return np.mean(score_list), np.var(score_list)
 
 

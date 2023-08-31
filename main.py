@@ -15,7 +15,7 @@ from config import config
 # tracker = EmissionsTracker()
 # tracker.start()
 from island_navigation import * 
-
+import wandb
 import os 
 import time
 import warnings
@@ -202,6 +202,10 @@ opt.batch_size = int(opt.eff_batch_size / opt.mask_prob)
 opt.minimal_eff_bs = int(opt.minimal_eff_bs_ratio * opt.eff_batch_size)
 
 print(vars(opt))
+wandb.init(config=vars(opt), entity="kaustubh95",
+                   project="risk_aware_exploration",
+                   monitor_gym=True,
+                    save_code=True)
 
 
 if "Mean_Target" in opt.model:
