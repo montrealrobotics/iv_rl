@@ -26,6 +26,7 @@ class DQNAgent():
             device (str): cpu or gpu
         """
         self.env = env
+        self.test_env = IslandNavigationEnvironment(test_env=True)
         self.opt = opt
         if self.opt.use_safety_info:
             self.state_size = np.array(env.observation_space()["board"].shape).prod() + 1
@@ -159,6 +160,7 @@ class DQNAgent():
         scores_window = deque(maxlen=100)  # last 100 scores
         eps = eps_start                    # initialize epsilon
         for i_episode in range(1, n_episodes+1):
+            self.env = IslandNavigationEnvironment(level_num=np.random.choice(range(4)))
             _, _, _, state = self.env.reset()
             state = state["board"].ravel()
             if self.opt.use_safety_info:
@@ -218,18 +220,18 @@ class DQNAgent():
     def test(self, episode, num_trials=5, max_t=1000):
         score_list, variance_list = [], []
         #for i in range(num_trials):
-        _, _, _, state = self.env.reset()
+        _, _, _, state = self.test_env.reset()
         state = state["board"].ravel()
         if self.opt.use_safety_info:
-            safety = self.env.environment_data['safety']
+            safety = self.test_env.environment_data['safety']
             state = np.array(list(state) + [safety])
         score = 0
         for t in range(max_t):
             action, _ = self.act(state, -1)
-            _, reward, not_done, next_state = self.env.step(action)
+            _, reward, not_done, next_state = self.test_env.step(action)
             next_state = next_state["board"].ravel()
             if self.opt.use_safety_info:
-                safety = self.env.environment_data['safety']
+                safety = self.test_env.environment_data['safety']
                 next_state = np.array(list(next_state) + [safety])
             if reward is None:
                 reward = 0
