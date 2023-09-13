@@ -11,7 +11,7 @@ from collections import namedtuple, deque, Counter
 
 from utils import * 
 from .networks import *
-
+from island_navigation import *
 
 class DQNAgent():
     """Interacts with and learns from the environment."""
@@ -29,10 +29,10 @@ class DQNAgent():
         self.test_env = IslandNavigationEnvironment(test_env=True)
         self.opt = opt
         if self.opt.use_safety_info:
-            self.state_size = np.array(env.observation_space()["board"].shape).prod() + 1
+            self.state_size = np.array(env.observation_spec()["board"].shape).prod() + 1
         else:
-            self.state_size = np.array(env.observation_space()["board"].shape).prod()
-        self.action_size = env.action_space().maximum + 1
+            self.state_size = np.array(env.observation_spec()["board"].shape).prod()
+        self.action_size = env.action_spec().maximum + 1
         self.seed = random.seed(opt.env_seed)
         self.test_scores = []
         self.device = device
