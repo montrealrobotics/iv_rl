@@ -220,18 +220,18 @@ class DQNAgent():
     def test(self, episode, num_trials=5, max_t=1000):
         score_list, variance_list = [], []
         #for i in range(num_trials):
-        _, _, _, state = self.test_env.reset()
+        _, _, _, state = self.env.reset()
         state = state["board"].ravel()
         if self.opt.use_safety_info:
-            safety = self.test_env.environment_data['safety']
+            safety = self.env.environment_data['safety']
             state = np.array(list(state) + [safety])
         score = 0
         for t in range(max_t):
             action, _ = self.act(state, -1)
-            _, reward, not_done, next_state = self.test_env.step(action)
+            _, reward, not_done, next_state = self.env.step(action)
             next_state = next_state["board"].ravel()
             if self.opt.use_safety_info:
-                safety = self.test_env.environment_data['safety']
+                safety = self.env.environment_data['safety']
                 next_state = np.array(list(next_state) + [safety])
             if reward is None:
                 reward = 0
