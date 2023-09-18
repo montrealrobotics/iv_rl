@@ -26,7 +26,6 @@ class DQNAgent():
             device (str): cpu or gpu
         """
         self.env = env
-        self.test_env = IslandNavigationEnvironment(test_env=True)
         self.opt = opt
         if self.opt.use_safety_info:
             self.state_size = np.array(env.observation_spec()["board"].shape).prod() + 1
@@ -156,11 +155,11 @@ class DQNAgent():
             eps_decay (float): multiplicative factor (per episode) for decreasing epsilon
         """
         flag = 1 # used for hyperparameter tuning
+        num_terminations = 0
         scores = []
         scores_window = deque(maxlen=100)  # last 100 scores
         eps = eps_start                    # initialize epsilon
         for i_episode in range(1, n_episodes+1):
-            self.env = IslandNavigationEnvironment(level_num=np.random.choice(range(4)))
             _, _, _, state = self.env.reset()
             state = state["board"].ravel()
             if self.opt.use_safety_info:
@@ -192,6 +191,7 @@ class DQNAgent():
                 ep_Q.append(Q)
                 ep_loss.append(self.loss)
                 if not not_done:
+                    num_terminations += 1
                     break 
 
             #wandb.log({"V(s) (VAR)": np.var(ep_Q), "V(s) (Mean)": np.mean(ep_Q),
@@ -209,6 +209,7 @@ class DQNAgent():
             scores.append(score)               # save most recent score
             eps = max(eps_end, eps_decay*eps)  # decrease epsilon
             wandb.log({"Moving Average Return/100episode": np.mean(scores_window)})
+            wandb.log({"Terminations / Violations": num_terminations})
             #if np.mean(self.test_scores[-100:]) >= self.opt.goal_score and flag:
             #    flag = 0 
             #    wandb.log({"EpisodeSolved": i_episode}, commit=False)

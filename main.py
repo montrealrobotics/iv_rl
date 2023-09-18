@@ -67,6 +67,8 @@ model_dict = {"DQN"                        : DQNAgent,
 parser = argparse.ArgumentParser(description="DQN options")
 parser.add_argument("--env", type=str, default="IslandNavigation",
                     help="Gym environment")
+parser.add_argument("--env-level", type=int, default=0,
+                   help="environment level for Island Navigation")
 parser.add_argument("--use_safety_info", type=str2bool, nargs='?',
                         const=True, default=False,
                         help="whether to use calculated eps using minimum effective batch size")
@@ -221,7 +223,7 @@ if __name__ == "__main__":
     Model = model_dict[opt.model]
     if "sac" not in opt.model.lower():
         if opt.env == "IslandNavigation":
-            env = IslandNavigationEnvironment()
+            env = IslandNavigationEnvironment(level_num=opt.env_level)
             print("Island Navigation environment initiated")
         else:
             env = gym.make(opt.env)
