@@ -128,3 +128,63 @@ class MaskReplayBuffer(ReplayBuffer):
         masks = torch.from_numpy(np.vstack([e.mask for e in experiences if e is not None])).bool().to(self.device)
         return (states, actions, rewards, next_states, dones, masks)
 
+
+
+class RiskReplayBuffer(ReplayBuffer):
+    def __init__(self, opt, action_size, seed, device):
+        super().__init__(opt, action_size, seed, device)
+        self.experience = namedtuple("Experience", field_names=["state", "action", "reward", "next_state", "done", "risk"])
+
+    def add(self, state, action, reward, next_state, done, risk=None):
+        """Add a new experience to memory."""
+        e = self.experience(state, action, reward, next_state, done, risk)
+        self.memory.append(e)
+
+    def sample(self):
+        """Randomly sample a batch of experiences from memory."""
+        experiences = random.sample(self.memory, k=self.batch_size)
+
+        states = torch.from_numpy(np.vstack([e.state for e in experiences if e is not None])).float().to(self.device)
+        actions = torch.from_numpy(np.vstack([e.action for e in experiences if e is not None])).long().to(self.device)
+        rewards = torch.from_numpy(np.vstack([e.reward for e in experiences if e is not None])).float().to(self.device)
+        next_states = torch.from_numpy(np.vstack([e.next_state for e in experiences if e is not None])).float().to(self.device)
+        dones = torch.from_numpy(np.vstack([e.done for e in experiences if e is not None]).astype(np.uint8)).float().to(self.device)
+        masks = torch.from_numpy(np.vstack([e.mask for e in experiences if e is not None])).bool().to(self.device)
+        return (states, actions, rewards, next_states, dones, masks)
+
+
+class ReplayBuffer2:
+        def __init__(self, buffer_size=100000):
+                self.obs = None 
+                self.next_obs = None
+                self.actions = None 
+                self.rewards = None 
+                self.dones = None
+                self.risks = None 
+                self.dist_to_fails = None 
+                self.costs = None
+
+        def add(self, obs, next_obs, action, reward, done, cost, risk):
+                self.obs = obs if self.obs is None else torch.concat([self.obs, obs], axis=0)
+                self.next_obs = next_obs if self.next_obs is None else torch.concat([self.next_obs, next_obs], axis=0)
+                self.actions = action if self.actions is None else torch.concat([self.actions, action], axis=0)
+                self.rewards = reward if self.rewards is None else torch.concat([self.rewards, reward], axis=0)
+                self.dones = done if self.dones is None else torch.concat([self.dones, done], axis=0)
+                self.risks = risk if self.risks is None else torch.concat([self.risks, risk], axis=0)
+                self.costs = cost if self.costs is None else torch.concat([self.costs, cost], axis=0)
+                self.dist_to_fails = dist_to_fail if self.dist_to_fails is None else torch.concat([self.dist_to_fails, dist_to_fail], axis=0)
+
+        def __len__(self):
+                return self.obs.size()[0]
+        
+        def sample(self, sample_size):
+                idx = range(self.obs.size()[0])
+                sample_idx = np.random.choice(idx, sample_size)
+                return {"obs": self.obs[sample_idx],
+                        "next_obs": self.next_obs[sample_idx],
+                        "actions": self.actions[sample_idx],
+                        "rewards": self.rewards[sample_idx],
+                        "dones": self.dones[sample_idx],
+                        "risks": self.risks[sample_idx], 
+                        "costs": self.costs[sample_idx],
+                        "dist_to_fail": self.dist_to_fails[sample_idx]}
