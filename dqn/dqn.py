@@ -27,7 +27,7 @@ class DQNAgent():
         """
         self.env = env
         self.opt = opt
-        self.state_size = env.observation_space.shape[0]
+        self.state_size = np.prod(env.observation_space.shape)
         self.action_size = env.action_space.n
         self.seed = random.seed(opt.env_seed)
         self.test_scores = []
@@ -157,11 +157,12 @@ class DQNAgent():
         scores_window = deque(maxlen=100)  # last 100 scores
         eps = eps_start                    # initialize epsilon
         for i_episode in range(1, n_episodes+1):
-            state = self.env.reset()
+            state = self.env.reset()[0].ravel()
             score, ep_var, ep_weights, eff_bs_list, xi_list, ep_Q, ep_loss = 0, [], [], [], [], [], []   # list containing scores from each episode
             for t in range(max_t):
-                action, Q = self.act(state, eps, is_train=True)
-                next_state, reward, done, _ = self.env.step(action)
+                action, Q = self.act(state.ravel(), eps, is_train=True)
+                next_state, reward, done, truncated, info = self.env.step(action)
+                next_state = next_state.ravel()
                 logs = self.step(state, action, reward, next_state, done)
                 state = next_state
                 if done:
@@ -194,10 +195,10 @@ class DQNAgent():
             scores_window.append(score)        # save most recent score
             scores.append(score)               # save most recent score
             eps = max(eps_end, eps_decay*eps)  # decrease epsilon
-            #wandb.log({"Moving Average Return/100episode": np.mean(scores_window)})
-            #if np.mean(self.test_scores[-100:]) >= self.opt.goal_score and flag:
-            #    flag = 0 
-            #    wandb.log({"EpisodeSolved": i_episode}, commit=False)
+            wandb.log({"Moving Average Return/100episode": np.mean(scores_window)})
+            if np.mean(self.test_scores[-100:]) >= self.opt.goal_score and flag:
+               flag = 0 
+               wandb.log({"EpisodeSolved": i_episode}, commit=False)
             print('\rEpisode {}\tAverage Score: {:.2f}'.format(i_episode, np.mean(scores_window)), end="")
             if i_episode % 100 == 0:
                 print('\rEpisode {}\tAverage Score: {:.2f}'.format(i_episode, np.mean(scores_window)))
@@ -206,18 +207,18 @@ class DQNAgent():
     def test(self, episode, num_trials=5, max_t=1000):
         score_list, variance_list = [], []
         #for i in range(num_trials):
-        state = self.env.reset()
+        state = self.env.reset()[0]
         score = 0
         for t in range(max_t):
-            action, _ = self.act(state, -1)
-            next_state, reward, done, _ = self.env.step(action)
-            state = next_state
+            action, _ = self.act(state.ravel(), -1)
+            next_state, reward, done, truncated, info = self.env.step(action)
+            state = next_state.ravel()
             score += reward
             if done:
                 break
         self.test_scores.append(score)
-        #wandb.log({"Test Environment (Moving Average Return/100 episodes)": np.mean(self.test_scores[-100:]),
-        #           "Test Environment Return": score}, step=episode)
+        wandb.log({"Test Environment (Moving Average Return/100 episodes)": np.mean(self.test_scores[-100:]),
+                  "Test Environment Return": score}, step=episode)
         return np.mean(score_list), np.var(score_list)
 
 

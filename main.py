@@ -1,5 +1,5 @@
 import os
-import gym 
+import gymnasium as gym
 import argparse
 
 import torch
@@ -8,13 +8,13 @@ import torch.optim as optim
 import torch.nn.functional as F
 
 from dqn import * 
-from sac import *
+# from sac import *
 from utils import *
 from config import config 
-from codecarbon import EmissionsTracker
-tracker = EmissionsTracker()
-tracker.start()
-
+# from codecarbon import EmissionsTracker
+# tracker = EmissionsTracker()
+# tracker.start()
+import wandb
 import os 
 import time
 import warnings
@@ -36,28 +36,28 @@ model_dict = {"DQN"                        : DQNAgent,
               "IV_VarEnsembleDQN"          : IV_LakshmiBootstrapDQN,
               "IV_DQN"                     : IV_LakshmiBootstrapDQN,
 
-              "SunriseDQN"                 : Sunrise_BootstrapDQN,
-              "Sunrise_VarEnsembleDQN"     : Sunrise_LakshmiBootstrapDQN,
+            #   "SunriseDQN"                 : Sunrise_BootstrapDQN,
+            #   "Sunrise_VarEnsembleDQN"     : Sunrise_LakshmiBootstrapDQN,
 
-              "UWACDQN"                    : UWAC_DQN,
-              "UWAC_VarEnsembleDQN"        : UWAC_LakshmiBootstrapDQN,
+            #   "UWACDQN"                    : UWAC_DQN,
+            #   "UWAC_VarEnsembleDQN"        : UWAC_LakshmiBootstrapDQN,
 
 
-              "SAC"                        : SACTrainer,
-              "VarSAC"                     : VarSACTrainer,
-              "IV_VarSAC"                  : IV_VarSAC,
+            #   "SAC"                        : SACTrainer,
+            #   "VarSAC"                     : VarSACTrainer,
+            #   "IV_VarSAC"                  : IV_VarSAC,
 
-              "EnsembleSAC"                : EnsembleSAC,
-              "IV_EnsembleSAC"             : IV_EnsembleSAC,
-              "VarEnsembleSAC"             : VarEnsembleSAC,
-              "IV_SAC"                     : IV_VarEnsembleSAC,
-              "IV_VarEnsembleSAC"          : IV_VarEnsembleSAC,
+            #   "EnsembleSAC"                : EnsembleSAC,
+            #   "IV_EnsembleSAC"             : IV_EnsembleSAC,
+            #   "VarEnsembleSAC"             : VarEnsembleSAC,
+            #   "IV_SAC"                     : IV_VarEnsembleSAC,
+            #   "IV_VarEnsembleSAC"          : IV_VarEnsembleSAC,
 
-              "SunriseSAC"                 : SunriseSAC,
-              "Sunrise_VarEnsembleSAC"     : Sunrise_VarEnsembleSAC,
+            #   "SunriseSAC"                 : SunriseSAC,
+            #   "Sunrise_VarEnsembleSAC"     : Sunrise_VarEnsembleSAC,
               
-              "UWACSAC"                    : UWACSAC,
-              "UWAC_VarEnsembleSAC"        : UWAC_VarEnsembleSAC
+            #   "UWACSAC"                    : UWACSAC,
+            #   "UWAC_VarEnsembleSAC"        : UWAC_VarEnsembleSAC
               }
 
 
@@ -176,7 +176,6 @@ parser.add_argument('--save_freq', default=0, type=int)
 target_type = ["", "_mean_target"]
 
 
-
 opt = parser.parse_args()
 
 try:
@@ -203,6 +202,12 @@ print(vars(opt))
 if "Mean_Target" in opt.model:
     opt.mean_target = True
 
+
+wandb.init(config=vars(opt), entity="kaustubh95",
+                   project="risk_aware_exploration",
+                   monitor_gym=True,
+                    save_code=True)
+
 if __name__ == "__main__":
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
     try:
@@ -213,7 +218,7 @@ if __name__ == "__main__":
     Model = model_dict[opt.model]
     if "sac" not in opt.model.lower():
         env = gym.make(opt.env)
-        env.seed(opt.env_seed)
+        # env.seed(opt.env_seed)
         agent = Model(env, opt, device=device)
         agent.train(n_episodes=opt.num_episodes, eps_decay=opt.eps_decay)
     else:
