@@ -23,6 +23,7 @@ warnings.filterwarnings('ignore')
 os.environ["WANDB_SILENT"] = "true"
 
 model_dict = {"DQN"                        : DQNAgent,
+              "RiskDQN"                    : RiskDQN,
               "VarDQN"                     : LossAttDQN,
               "EnsembleDQN"                : EnsembleDQN,
               "BootstrapDQN"               : RPFMaskEnsembleDQN,
@@ -172,6 +173,51 @@ parser.add_argument('--num_layer', default=2, type=int)
 parser.add_argument('--save_freq', default=0, type=int)
 
 
+## Risk related Arguments
+parser.add_argument("--use-risk", type=lambda x: bool(strtobool(x)), default=False, nargs="?", const=True,
+    help="Use risk model or not ")
+parser.add_argument("--risk-actor", type=lambda x: bool(strtobool(x)), default=True, nargs="?", const=True,
+    help="Use risk model in the actor or not ")
+parser.add_argument("--risk-critic", type=lambda x: bool(strtobool(x)), default=False, nargs="?", const=True,
+    help="Use risk model in the critic or not ")
+parser.add_argument("--risk-model-path", type=str, default="None",
+    help="the id of the environment")
+parser.add_argument("--binary-risk", type=lambda x: bool(strtobool(x)), default=False, nargs="?", const=True,
+    help="Use risk model in the critic or not ")
+parser.add_argument("--model-type", type=str, default="mlp",
+    help="specify the NN to use for the risk model")
+parser.add_argument("--risk-bnorm", type=lambda x: bool(strtobool(x)), default=True, nargs="?", const=True,
+    help="Toggles whether or not to use a clipped loss for the value function, as per the paper.")
+parser.add_argument("--risk-type", type=str, default="binary",
+    help="whether the risk is binary or continuous")
+parser.add_argument("--fear-radius", type=int, default=5,
+    help="fear radius for training the risk model")
+parser.add_argument("--num-risk-datapoints", type=int, default=1000,
+    help="fear radius for training the risk model")
+parser.add_argument("--risk-update-period", type=int, default=1,
+    help="how frequently to update the risk model")
+parser.add_argument("--num-risk-epochs", type=int, default=1,
+    help="number of sgd steps to update the risk model")
+parser.add_argument("--num-update-risk", type=int, default=10,
+    help="number of sgd steps to update the risk model")
+parser.add_argument("--risk-lr", type=float, default=1e-7,
+    help="the learning rate of the optimizer")
+parser.add_argument("--risk-batch-size", type=int, default=1000,
+    help="number of epochs to update the risk model")
+parser.add_argument("--fine-tune-risk", type=lambda x: bool(strtobool(x)), default=True, nargs="?", const=True,
+    help="Toggles whether or not to use a clipped loss for the value function, as per the paper.")
+parser.add_argument("--finetune-risk-online", type=lambda x: bool(strtobool(x)), default=False, nargs="?", const=True,
+    help="Toggles whether or not to use a clipped loss for the value function, as per the paper.")
+parser.add_argument("--start-risk-update", type=int, default=10000,
+    help="number of epochs to update the risk model") 
+parser.add_argument("--rb-type", type=str, default="balanced",
+    help="which type of replay buffer to use for ")
+parser.add_argument("--freeze-risk-layers", type=lambda x: bool(strtobool(x)), default=False, nargs="?", const=True,
+    help="Toggles whether or not to use a clipped loss for the value function, as per the paper.")
+parser.add_argument("--weight", type=float, default=1.0, 
+    help="weight for the 1 class in BCE loss")
+parser.add_argument("--quantile-size", type=int, default=4, help="size of the risk quantile ")
+parser.add_argument("--quantile-num", type=int, default=5, help="number of quantiles to make")
 
 target_type = ["", "_mean_target"]
 
@@ -209,7 +255,7 @@ wandb.init(config=vars(opt), entity="kaustubh95",
                     save_code=True)
 
 if __name__ == "__main__":
-    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+    device = torch.device("cpu") #torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
     try:
         os.makedirs(opt.log_dir)
     except:
@@ -224,4 +270,4 @@ if __name__ == "__main__":
     else:
         run_sac(Model, opt)
 
-tracker.stop()
+# tracker.stop()
