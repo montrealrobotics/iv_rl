@@ -201,7 +201,7 @@ opt.batch_size = int(opt.eff_batch_size / opt.mask_prob)
 opt.minimal_eff_bs = int(opt.minimal_eff_bs_ratio * opt.eff_batch_size)
 
 print(vars(opt))
-wandb.init(config=vars(opt), entity="kaustubh95",
+wandb.init(config=vars(opt), entity="manila95",
                    project="risk_aware_exploration",
                    monitor_gym=True,
                     save_code=True)
@@ -212,6 +212,7 @@ if "Mean_Target" in opt.model:
 
 if __name__ == "__main__":
     device = torch.device("cpu") #torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+    torch.set_num_threads(4)
     try:
         os.makedirs(opt.log_dir)
     except:

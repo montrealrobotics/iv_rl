@@ -164,6 +164,7 @@ class DQNAgent():
             eps_decay (float): multiplicative factor (per episode) for decreasing epsilon
         """
         flag = 1 # used for hyperparameter tuning
+        num_terminations = 0
         scores = []
         scores_window = deque(maxlen=100)  # last 100 scores
         eps = eps_start                    # initialize epsilon
@@ -206,6 +207,7 @@ class DQNAgent():
                         self.risk_stats[ep_obs[i]].append(e_risks[i])
 
                     reward += self.opt.end_reward
+                    #num_terminations += 1
                     ep_obs = []
                 score += reward
                 if logs is not None:
@@ -219,6 +221,7 @@ class DQNAgent():
                 ep_Q.append(Q)
                 ep_loss.append(self.loss)
                 if not not_done:
+                    num_terminations += int(self.env.environment_data['safety'] < 1)
                     break 
 
             #wandb.log({"V(s) (VAR)": np.var(ep_Q), "V(s) (Mean)": np.mean(ep_Q),
@@ -239,6 +242,7 @@ class DQNAgent():
             #if np.mean(self.test_scores[-100:]) >= self.opt.goal_score and flag:
             #    flag = 0 
             #    wandb.log({"EpisodeSolved": i_episode}, commit=False)
+            wandb.log({"Terminations / Violations": num_terminations})
             print('\rEpisode {}\tAverage Score: {:.2f}'.format(i_episode, np.mean(scores_window)), end="")
             if i_episode % 100 == 0:
                 print('\rEpisode {}\tAverage Score: {:.2f}'.format(i_episode, np.mean(scores_window)))
