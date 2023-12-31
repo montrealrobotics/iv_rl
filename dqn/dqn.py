@@ -2,7 +2,7 @@ import torch
 # import torch.nn as nn
 # import torch.optim as optim
 # import torch.nn.functional as F
-
+import pickle
 import os
 import wandb
 import random
@@ -28,8 +28,10 @@ class DQNAgent():
         self.env = env
         self.test_env = IslandNavigationEnvironment(test_env=True)
         self.opt = opt
-        if self.opt.use_safety_info:
+        if self.opt.safety_info == "gt":
             self.state_size = np.array(env.observation_spec()["board"].shape).prod() + 1
+        elif self.opt.safety_info == "emp_risk":
+            self.state_size = np.array(env.observation_spec()["board"].shape).prod() + 10
         else:
             self.state_size = np.array(env.observation_spec()["board"].shape).prod()
         self.action_size = env.action_spec().maximum + 1
@@ -49,6 +51,12 @@ class DQNAgent():
         self.t_step = 0
         self.xi = 0
         self.loss = 0 
+
+        print(env.observation_spec()["board"].shape)
+        self.risk_stats = {}
+        board_x, board_y = env.observation_spec()["board"].shape[0], env.observation_spec()["board"].shape[1]
+        for i in range(board_x*board_y):
+            self.risk_stats[i] = list()
 
     def step(self, state, action, reward, next_state, done):
         # Save experience in replay memory
@@ -159,27 +167,46 @@ class DQNAgent():
         scores = []
         scores_window = deque(maxlen=100)  # last 100 scores
         eps = eps_start                    # initialize epsilon
+        ep_obs = []
+        def_risk = [0.1]*10
         for i_episode in range(1, n_episodes+1):
-            self.env = IslandNavigationEnvironment(level_num=np.random.choice(range(4)))
+            self.env = IslandNavigationEnvironment(level_num=np.random.choice(range(5)))
             _, _, _, state = self.env.reset()
             state = state["board"].ravel()
-            if self.opt.use_safety_info:
+            if self.opt.safety_info == "gt":
                 safety = self.env.environment_data['safety']
                 state = np.array(list(state) + [safety])
+            elif self.opt.safety_info == "emp_risk":
+                state = np.array(list(state) + def_risk)
+
             score, ep_var, ep_weights, eff_bs_list, xi_list, ep_Q, ep_loss = 0, [], [], [], [], [], []   # list containing scores from each episode
             for t in range(max_t):
+                pos = list(zip(*np.where(state == 2)))[0][0]
+                ep_obs.append(pos)
                 action, Q = self.act(state, eps, is_train=True)
                 _, reward, not_done, next_state = self.env.step(action)
                 if reward is None:
                     reward = 0
                 next_state = next_state['board'].ravel()
-                if self.opt.use_safety_info:
+                if self.opt.safety_info == "gt":
                     safety = self.env.environment_data['safety']
                     next_state = np.array(list(next_state) + [safety])
+                elif self.opt.safety_info == "emp_risk":
+                    try:
+                        risk = np.histogram(self.risk_stats[pos], range=(0,10), bins=10, density=True)
+                    except:
+                        risk = def_risk
+                    next_state = np.array(list(next_state) + def_risk)
+                
                 logs = self.step(state, action, reward, next_state, not not_done)
                 state = next_state
                 if not not_done:
+                    e_risks = list(reversed(range(t+1))) if t < max_t-1 else [t]*t
+                    for i in range(t+1):
+                        self.risk_stats[ep_obs[i]].append(e_risks[i])
+
                     reward += self.opt.end_reward
+                    ep_obs = []
                 score += reward
                 if logs is not None:
                     # try:
@@ -202,8 +229,8 @@ class DQNAgent():
             #    "Loss (Median)": np.median(ep_loss)}, commit=False)
             #if len(ep_var) > 0: # if there are entries in the variance list
 	    #        self.train_log(ep_var, ep_weights, eff_bs_list, eps_list)
-            if i_episode % self.opt.test_every == 0:
-                self.test(episode=i_episode)
+            # if i_episode % self.opt.test_every == 0:
+            #     self.test(episode=i_episode)
  
             scores_window.append(score)        # save most recent score
             scores.append(score)               # save most recent score
@@ -217,10 +244,13 @@ class DQNAgent():
                 print('\rEpisode {}\tAverage Score: {:.2f}'.format(i_episode, np.mean(scores_window)))
             #self.save(scores)
 
+            with open("risk_stats.pkl", "wb") as f:
+                pickle.dump(self.risk_stats, f, protocol=pickle.HIGHEST_PROTOCOL)
+
     def test(self, episode, num_trials=5, max_t=1000):
         score_list, variance_list = [], []
         #for i in range(num_trials):
-        _, _, _, state = self.test_env.reset()
+        _, _, _, state = self.env.reset()
         state = state["board"].ravel()
         if self.opt.use_safety_info:
             safety = self.test_env.environment_data['safety']

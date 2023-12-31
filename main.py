@@ -67,9 +67,8 @@ model_dict = {"DQN"                        : DQNAgent,
 parser = argparse.ArgumentParser(description="DQN options")
 parser.add_argument("--env", type=str, default="IslandNavigation",
                     help="Gym environment")
-parser.add_argument("--use_safety_info", type=str2bool, nargs='?',
-                        const=True, default=False,
-                        help="whether to use calculated eps using minimum effective batch size")
+parser.add_argument("--safety_info", type=str, choices=["none", "gt", "emp_risk"], required=True,
+                    help="which type of safety info to use")
 parser.add_argument("--model", type=str, choices=model_dict.keys(), required=True,
                     help="which RL algorithm to run??")
 parser.add_argument("--lr", type=float, default=5e-4,
