@@ -338,30 +338,62 @@ class BootstrapDQN(MaskEnsembleDQN):
         scores = []   # list containing scores from each episode
         scores_window = deque(maxlen=100)  # last 100 scores
         eps = eps_start                    # initialize epsilon
+        ep_obs = []
+        def_risk = [0.1]*10
+        num_terminations = 0
         for i_episode in range(1, n_episodes+1):
-            state = self.env.reset()
+            self.env = IslandNavigationEnvironment(level_num=0)
+            _, _, _, state = self.env.reset()
+            state = state["board"].ravel()
+            if self.opt.safety_info == "gt":
+                safety = self.env.environment_data['safety']
+                state = np.array(list(state) + [safety])
+            elif self.opt.safety_info == "emp_risk":
+                state = np.array(list(state) + def_risk)
+
             score, ep_var, ep_weights, eff_bs_list, xi_list, ep_Q, ep_loss = 0, [], [], [], [], [], []   # list containing scores from each episode
             # Select Network to take actions in the environment for the current episode
             curr_net = random.choice(range(self.opt.num_nets)) 
             for t in range(max_t):
+                pos = list(zip(*np.where(state == 2)))[0][0]
+                ep_obs.append(pos)
                 action, Q = self.act(state, eps, i=curr_net, is_train=True)
-                next_state, reward, done, _ = self.env.step(action)
-                logs = self.step(state, action, reward, next_state, done)
+                _, reward, not_done, next_state = self.env.step(action)
+                if reward is None:
+                    reward = 0
+                next_state = next_state['board'].ravel()
+                if self.opt.safety_info == "gt":
+                    safety = self.env.environment_data['safety']
+                    next_state = np.array(list(next_state) + [safety])
+                elif self.opt.safety_info == "emp_risk":
+                    try:
+                        risk = np.histogram(self.risk_stats[pos], range=(0,10), bins=10, density=True)
+                    except:
+                        risk = def_risk
+                    next_state = np.array(list(next_state) + def_risk)
+                
+                logs = self.step(state, action, reward, next_state, not not_done)
                 state = next_state
-                if done:
+                if not not_done:
+                    e_risks = list(reversed(range(t+1))) if t < max_t-1 else [t]*t
+                    for i in range(t+1):
+                        self.risk_stats[ep_obs[i]].append(e_risks[i])
+
                     reward += self.opt.end_reward
+                    ep_obs = []
                 score += reward
                 if logs is not None:
-                    try:
-                        ep_var.extend(logs[0])
-                        ep_weights.extend(logs[1])
-                        eff_bs_list.append(logs[2])
-                        xi_list.append(logs[3])
-                    except:
-                        pass
+                    # try:
+                    ep_var.extend(logs[0])
+                    ep_weights.extend(logs[1])
+                    eff_bs_list.append(logs[2])
+                    xi_list.append(logs[3])
+                    # except:
+                    #     pass
                 ep_Q.append(Q)
                 ep_loss.append(self.loss)
-                if done:
+                if not not_done:
+                    num_terminations += (self.env.environment_data['safety'] < 1)
                     break 
 
             #wandb.log({"V(s) (VAR)": np.var(ep_Q), "V(s) (Mean)": np.mean(ep_Q),
@@ -372,14 +404,16 @@ class BootstrapDQN(MaskEnsembleDQN):
             #    "Loss (Median)": np.median(ep_loss)}, commit=False)
             #if len(ep_var) > 0: # if there are entries in the variance list
             #    self.train_log(ep_var, ep_weights, eff_bs_list, eps_list)
-            if i_episode % self.opt.test_every == 0:
-                self.test(episode=i_episode)
+            # if i_episode % self.opt.test_every == 0:
+            #     self.test(episode=i_episode)
  
             scores_window.append(score)        # save most recent score
             scores.append(score)               # save most recent score
             eps = max(eps_end, eps_decay*eps)  # decrease epsilon
-            #wandb.log({"Moving Average Return/100episode": np.mean(scores_window)})
+            wandb.log({"Moving Average Return/100episode": np.mean(scores_window)})
             print('\rEpisode {}\tAverage Score: {:.2f}'.format(i_episode, np.mean(scores_window)), end="")
+            wandb.log({"Terminations / Violations": num_terminations})
+
             if i_episode % 100 == 0:
                 print('\rEpisode {}\tAverage Score: {:.2f}'.format(i_episode, np.mean(scores_window)))
             #self.save(scores)

@@ -169,8 +169,9 @@ class DQNAgent():
         eps = eps_start                    # initialize epsilon
         ep_obs = []
         def_risk = [0.1]*10
+        num_terminations = 0
         for i_episode in range(1, n_episodes+1):
-            self.env = IslandNavigationEnvironment(level_num=np.random.choice(range(5)))
+            self.env = IslandNavigationEnvironment(level_num=0)
             _, _, _, state = self.env.reset()
             state = state["board"].ravel()
             if self.opt.safety_info == "gt":
@@ -219,6 +220,7 @@ class DQNAgent():
                 ep_Q.append(Q)
                 ep_loss.append(self.loss)
                 if not not_done:
+                    num_terminations += (self.env.environment_data['safety'] < 1)
                     break 
 
             #wandb.log({"V(s) (VAR)": np.var(ep_Q), "V(s) (Mean)": np.mean(ep_Q),
@@ -239,6 +241,7 @@ class DQNAgent():
             #if np.mean(self.test_scores[-100:]) >= self.opt.goal_score and flag:
             #    flag = 0 
             #    wandb.log({"EpisodeSolved": i_episode}, commit=False)
+            wandb.log({"Terminations / Violations": num_terminations})
             print('\rEpisode {}\tAverage Score: {:.2f}'.format(i_episode, np.mean(scores_window)), end="")
             if i_episode % 100 == 0:
                 print('\rEpisode {}\tAverage Score: {:.2f}'.format(i_episode, np.mean(scores_window)))
@@ -275,6 +278,89 @@ class DQNAgent():
         return np.mean(score_list), np.var(score_list)
 
 
+
+
+class C51(DQNAgent):
+    def __init__(self, env, opt, device="cuda"):
+        """Initialize an Agent object.
+        
+        Params
+        ======
+            state_size (int): dimension of each state
+            action_size (int): dimension of each action
+            num_nets (int): number of Q-networks
+            seed (int): random seed
+        """
+        super().__init__(env, opt, device)
+
+        # Q-Network
+        self.v_min = -50
+        self.v_max = 50
+        self.n_atoms = 51
+        self.qnetwork_local = c51QNetwork(self.state_size, self.action_size, opt.net_seed, n_atoms=51, v_min=-50, v_max=50).to(self.device)
+        self.qnetwork_target = c51QNetwork(self.state_size, self.action_size, opt.net_seed, n_atoms=51, v_min=-50, v_max=50).to(self.device)
+        self.optimizer = optim.Adam(self.qnetwork_local.parameters(), lr=opt.lr)
+
+    def act(self, state, eps=0., is_train=False):
+        """Returns actions for given state as per current policy.
+        
+        Params
+        ======
+            state (array_like): current state
+            eps (float): epsilon, for epsilon-greedy action selection
+        """
+        state = torch.from_numpy(state).float().unsqueeze(0).to(self.device)
+        self.qnetwork_local.eval()
+        with torch.no_grad():
+            action, _ = self.qnetwork_local(state)
+        self.qnetwork_local.train()
+        # action_values = action_values.cpu().data.numpy()
+        # Epsilon-greedy action selection
+        if random.random() > eps:
+            return action, 0 #np.mean(action_values)
+        else:
+            return random.choice(np.arange(self.action_size)), 0 #np.mean(action_values)
+
+    def learn(self, experiences, gamma):
+        """Update value parameters using given batch of experience tuples.
+        Params
+        ======
+            experiences (Tuple[torch.Variable]): tuple of (s, a, r, s', done) tuples 
+            gamma (float): discount factor
+        """
+        states, actions, rewards, next_states, dones = experiences
+        # Get max predicted Q values (for next states) from target model
+        with torch.no_grad():
+            _, next_pmfs = self.qnetwork_target(next_states)
+            # Compute Q targets for current states 
+            next_atoms = rewards + self.opt.gamma * self.qnetwork_target.atoms * (1 - dones)
+            delta_z = self.qnetwork_target.atoms[1] - self.qnetwork_target.atoms[0]
+            tz = next_atoms.clamp(self.v_min, self.v_max)
+
+            b = (tz - self.v_min) / delta_z
+            l = b.floor().clamp(0, self.n_atoms - 1)
+            u = b.ceil().clamp(0, self.n_atoms - 1)
+
+            d_m_l = (u + (l == u).float() - b) * next_pmfs
+            d_m_u = (b - l) * next_pmfs
+            target_pmfs = torch.zeros_like(next_pmfs)
+            for i in range(target_pmfs.size(0)):
+                target_pmfs[i].index_add_(0, l[i].long(), d_m_l[i])
+                target_pmfs[i].index_add_(0, u[i].long(), d_m_u[i])
+
+        _, old_pmfs = self.qnetwork_local(states, actions.flatten())
+        loss = (-(target_pmfs * old_pmfs.clamp(min=1e-5, max=1 - 1e-5).log()).sum(-1)).mean()
+
+        # Minimize the loss
+        self.optimizer.zero_grad()
+        loss.backward()
+        self.optimizer.step()
+
+        # In order to log the loss value
+        self.loss = loss.item()
+
+        # ------------------- update target network ------------------- #
+        self.soft_update(self.qnetwork_local, self.qnetwork_target, self.opt.tau)  
 
 class LossAttDQN(DQNAgent):
 

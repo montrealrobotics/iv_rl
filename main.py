@@ -24,6 +24,7 @@ warnings.filterwarnings('ignore')
 os.environ["WANDB_SILENT"] = "true"
 
 model_dict = {"DQN"                        : DQNAgent,
+              "C51"                        : C51,
               "VarDQN"                     : LossAttDQN,
               "EnsembleDQN"                : EnsembleDQN,
               "BootstrapDQN"               : RPFMaskEnsembleDQN,
@@ -201,7 +202,7 @@ opt.batch_size = int(opt.eff_batch_size / opt.mask_prob)
 opt.minimal_eff_bs = int(opt.minimal_eff_bs_ratio * opt.eff_batch_size)
 
 print(vars(opt))
-wandb.init(config=vars(opt), entity="kaustubh95",
+wandb.init(config=vars(opt), entity="manila95",
                    project="risk_aware_exploration",
                    monitor_gym=True,
                     save_code=True)
