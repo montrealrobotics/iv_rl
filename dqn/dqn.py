@@ -8,7 +8,7 @@ import wandb
 import random
 import numpy as np
 from collections import namedtuple, deque, Counter
-
+import wandb
 from utils import * 
 from .networks import *
 
@@ -241,6 +241,7 @@ class DQNAgent():
             eps = max(eps_end, eps_decay*eps)  # decrease epsilon
             wandb.log({"Moving Average Return/100episode": np.mean(scores_window)})
             wandb.log({"Num terminations ": num_terminations})
+            wandb.log({"Episode": i_episode-1})
 
             #if np.mean(self.test_scores[-100:]) >= self.opt.goal_score and flag:
             #    flag = 0 

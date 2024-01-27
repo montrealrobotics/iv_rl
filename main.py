@@ -20,9 +20,9 @@ import wandb
 import os 
 import time
 import warnings
-warnings.filterwarnings('ignore')
+# warnings.filterwarnings('ignore')
 
-os.environ["WANDB_SILENT"] = "true"
+# os.environ["WANDB_SILENT"] = "true"
 
 model_dict = {"DQN"                        : DQNAgent,
               "VarDQN"                     : LossAttDQN,
@@ -207,17 +207,18 @@ print(vars(opt))
 
 if "Mean_Target" in opt.model:
     opt.mean_target = True
-wandb.init(config=vars(opt), entity="manila95",
-                   project="risk_aware_exploration",
-                   monitor_gym=True,
-                    save_code=True)
+
 if __name__ == "__main__":
     device = torch.device("cpu")
     try:
         os.makedirs(opt.log_dir)
     except:
         pass
-
+    wandb.init(config=vars(opt), entity="manila95",
+                    project="risk-aware-exploration",
+                    monitor_gym=True,
+                    save_code=True)
+                    
     Model = model_dict[opt.model]
     if "sac" not in opt.model.lower():
         env = gym.make(opt.env)
