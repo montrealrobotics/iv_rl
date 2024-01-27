@@ -27,16 +27,16 @@ class DQNAgent():
         """
         self.env = env
         self.opt = opt
-        self.state_size = env.observation_space.shape[0]
+        self.state_size = 1 #$env.observation_space.shape[0]
         self.action_size = env.action_space.n
         self.seed = random.seed(opt.env_seed)
         self.test_scores = []
         self.device = device
         self.mask = False
-
+        self.risk_size = opt.quantile_num if opt.use_risk else 0 
         # Q-Network
-        self.qnetwork_local = QNetwork(self.state_size, self.action_size, opt.net_seed).to(self.device)
-        self.qnetwork_target = QNetwork(self.state_size, self.action_size, opt.net_seed).to(self.device)
+        self.qnetwork_local = QNetwork(self.state_size+self.risk_size, self.action_size, opt.net_seed).to(self.device)
+        self.qnetwork_target = QNetwork(self.state_size+self.risk_size, self.action_size, opt.net_seed).to(self.device)
         self.optimizer = optim.Adam(self.qnetwork_local.parameters(), lr=opt.lr)
 
         # Replay memory
@@ -84,6 +84,14 @@ class DQNAgent():
         else:
             return random.choice(np.arange(self.action_size)), np.mean(action_values)
 
+    def get_risk(self, state):
+        def_risk = [0.1]*10
+        try:
+            risk = np.histogram(self.risk_stats[obs], range=(0,10), bins=10, density=True)
+        except:
+            risk = def_risk
+        return risk
+
     def learn(self, experiences, gamma):
         """Update value parameters using given batch of experience tuples.
         Params
@@ -92,6 +100,12 @@ class DQNAgent():
             gamma (float): discount factor
         """
         states, actions, rewards, next_states, dones = experiences
+        if self.opt.use_risk:
+            state_risk = np.array([self.get_risk(states[i]) for i in range(states.size()[0])])
+            next_state_risk = np.array([self.get_risk(next_states[i]) for i in range(next_states.size()[0])])
+            states = torch.from_numpy(np.concatenate([states, state_risk], axis=-1)).float()
+            next_states = torch.from_numpy(np.concatenate([next_states, next_state_risk], axis=-1)).float()
+        
         # Get max predicted Q values (for next states) from target model
         Q_targets_next = self.qnetwork_target(next_states).detach().max(1)[0].unsqueeze(1)
         # Compute Q targets for current states 
@@ -156,14 +170,34 @@ class DQNAgent():
         scores = []
         scores_window = deque(maxlen=100)  # last 100 scores
         eps = eps_start                    # initialize epsilon
+        self.risk_stats = {}
+        def_risk = [0.1]*10
+        ep_obs = []
+        num_terminations = 0
         for i_episode in range(1, n_episodes+1):
-            state = self.env.reset()
+            obs, _ = self.env.reset()
+            if self.opt.use_risk:
+
+                state = np.array([obs] + def_risk)
+            else:
+                state = np.array([obs])
             score, ep_var, ep_weights, eff_bs_list, xi_list, ep_Q, ep_loss = 0, [], [], [], [], [], []   # list containing scores from each episode
             for t in range(max_t):
+                ep_obs.append(obs)
                 action, Q = self.act(state, eps, is_train=True)
-                next_state, reward, done, _ = self.env.step(action)
-                logs = self.step(state, action, reward, next_state, done)
+                next_obs, reward, terminated, truncated, _ = self.env.step(action)
+                done = np.logical_or(terminated, truncated)
+                if self.opt.use_risk:
+                    try:
+                        risk = np.histogram(self.risk_stats[next_obs], range=(0,10), bins=10, density=True)
+                    except:
+                        risk = def_risk
+                    next_state = np.array([next_obs] + def_risk)
+                else:
+                    next_state = np.array([next_obs])
+                logs = self.step(np.array([obs]), action, reward, np.array([next_obs]), done)
                 state = next_state
+                obs = next_obs
                 if done:
                     reward += self.opt.end_reward
                 score += reward
@@ -178,6 +212,17 @@ class DQNAgent():
                 ep_Q.append(Q)
                 ep_loss.append(self.loss)
                 if done:
+                    num_terminations += (terminated and reward < 1)
+                    if self.opt.use_risk:
+                        # print(ep_obs, )
+                        e_risks = list(reversed(range(t+1))) if terminated and reward < 1 else [t+1]*(t+1)
+                        # print(e_risks)
+                        for i in range(t+1):
+                            try:
+                                self.risk_stats[ep_obs[i]].append(e_risks[i])
+                            except:
+                                self.risk_stats[ep_obs[i]] = [e_risks[i]]
+                        ep_obs = []
                     break 
 
             #wandb.log({"V(s) (VAR)": np.var(ep_Q), "V(s) (Mean)": np.mean(ep_Q),
@@ -188,13 +233,15 @@ class DQNAgent():
             #    "Loss (Median)": np.median(ep_loss)}, commit=False)
             #if len(ep_var) > 0: # if there are entries in the variance list
 	    #        self.train_log(ep_var, ep_weights, eff_bs_list, eps_list)
-            if i_episode % self.opt.test_every == 0:
-                self.test(episode=i_episode)
+            # if i_episode % self.opt.test_every == 0:
+            #     self.test(episode=i_episode)
  
             scores_window.append(score)        # save most recent score
             scores.append(score)               # save most recent score
             eps = max(eps_end, eps_decay*eps)  # decrease epsilon
-            #wandb.log({"Moving Average Return/100episode": np.mean(scores_window)})
+            wandb.log({"Moving Average Return/100episode": np.mean(scores_window)})
+            wandb.log({"Num terminations ": num_terminations})
+
             #if np.mean(self.test_scores[-100:]) >= self.opt.goal_score and flag:
             #    flag = 0 
             #    wandb.log({"EpisodeSolved": i_episode}, commit=False)
