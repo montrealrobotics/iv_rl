@@ -239,9 +239,9 @@ class DQNAgent():
             scores_window.append(score)        # save most recent score
             scores.append(score)               # save most recent score
             eps = max(eps_end, eps_decay*eps)  # decrease epsilon
-            wandb.log({"Moving Average Return/100episode": np.mean(scores_window)}, global_step=i_episode)
-            wandb.log({"Num terminations ": num_terminations}, global_step=i_episode)
-            wandb.log({"Episode": i_episode-1}, global_step=i_episode)
+            wandb.log({"Moving Average Return/100episode": np.mean(scores_window)}, i_episode)
+            wandb.log({"Num terminations ": num_terminations}, i_episode)
+            wandb.log({"Episode": i_episode-1}, i_episode)
 
             #if np.mean(self.test_scores[-100:]) >= self.opt.goal_score and flag:
             #    flag = 0 
