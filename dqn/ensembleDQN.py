@@ -14,12 +14,14 @@ class EnsembleDQN(DQNAgent):
         """
         super().__init__(env, opt, device)
         self.qnets, self.target_nets, self.optims = [], [], []
+        self.risk_size = opt.quantile_num if opt.use_risk else 0 
+        print(self.state_size+self.risk_size)
         for i in range(self.opt.num_nets):
-            qnetwork = QNetwork(self.state_size, self.action_size,
+            qnetwork = QNetwork(self.state_size+self.risk_size, self.action_size,
                                 seed=i+opt.net_seed).to(self.device)
             self.qnets.append(qnetwork)
             self.target_nets.append(QNetwork(
-                self.state_size, self.action_size, seed=i+opt.net_seed).to(self.device))
+                self.state_size+self.risk_size, self.action_size, seed=i+opt.net_seed).to(self.device))
             # self.params += list(qnetwork.paramsrameters())
             self.optims.append(optim.Adam(qnetwork.parameters(), lr=opt.lr))
 
@@ -107,7 +109,12 @@ class EnsembleDQN(DQNAgent):
             gamma (float): discount factor
         """
         states, actions, rewards, next_states, dones = experiences
-
+        if self.opt.use_risk:
+            state_risk = np.array([self.get_risk(states[i]) for i in range(states.size()[0])])
+            next_state_risk = np.array([self.get_risk(next_states[i]) for i in range(next_states.size()[0])])
+            states = torch.from_numpy(np.concatenate([states, state_risk], axis=-1)).float()
+            next_states = torch.from_numpy(np.concatenate([next_states, next_state_risk], axis=-1)).float()
+        
         # Individual Network Target & Next Actions
         Q_targets_next = torch.stack([self.target_nets[i](next_states).detach()
                                                      for i in range(self.opt.num_nets)])
@@ -211,6 +218,12 @@ class MaskEnsembleDQN(EnsembleDQN):
             gamma (float): discount factor
         """
         states, actions, rewards, next_states, dones, masks = experiences
+        if self.opt.use_risk:
+            state_risk = np.array([self.get_risk(states[i]) for i in range(states.size()[0])])
+            next_state_risk = np.array([self.get_risk(next_states[i]) for i in range(next_states.size()[0])])
+            states = torch.from_numpy(np.concatenate([states, state_risk], axis=-1)).float()
+            next_states = torch.from_numpy(np.concatenate([next_states, next_state_risk], axis=-1)).float()
+        
         masks = masks.unsqueeze(2)
 
         # Individual Network Target & Next Actions
@@ -270,6 +283,8 @@ class RPFMaskEnsembleDQN(MaskEnsembleDQN):
         """
         super().__init__(env, opt, device)
         self.qnets, self.target_nets, self.optims = [], [], [] 
+        self.risk_size = opt.quantile_num if opt.use_risk else 0 
+
         for i in range(self.opt.num_nets): 
             qnetwork = QNet_with_prior(self.state_size, self.action_size, prior_scale=opt.prior_scale, seed=i+opt.net_seed).to(self.device)     
             self.qnets.append(qnetwork)
@@ -338,16 +353,36 @@ class BootstrapDQN(MaskEnsembleDQN):
         scores = []   # list containing scores from each episode
         scores_window = deque(maxlen=100)  # last 100 scores
         eps = eps_start                    # initialize epsilon
+        self.risk_stats = {}
+        def_risk = [0.1]*10
+        ep_obs = []
+        num_terminations = 0
         for i_episode in range(1, n_episodes+1):
-            state = self.env.reset()
+            obs, _ = self.env.reset()
+            if self.opt.use_risk:
+                state = np.array([obs] + def_risk)
+            else:
+                state = np.array([obs])
             score, ep_var, ep_weights, eff_bs_list, xi_list, ep_Q, ep_loss = 0, [], [], [], [], [], []   # list containing scores from each episode
             # Select Network to take actions in the environment for the current episode
             curr_net = random.choice(range(self.opt.num_nets)) 
             for t in range(max_t):
+                ep_obs.append(obs)
                 action, Q = self.act(state, eps, i=curr_net, is_train=True)
-                next_state, reward, done, _ = self.env.step(action)
-                logs = self.step(state, action, reward, next_state, done)
+                next_obs, reward, terminated, truncated, _ = self.env.step(action)
+                done = np.logical_or(terminated, truncated)
+                if self.opt.use_risk:
+                    try:
+                        risk = np.histogram(self.risk_stats[next_obs], range=(0,10), bins=10, density=True)
+                    except:
+                        risk = def_risk
+                    next_state = np.array([next_obs] + def_risk)
+                else:
+                    next_state = np.array([next_obs])
+                logs = self.step(np.array([obs]), action, reward, np.array([next_obs]), done)
                 state = next_state
+                obs = next_obs
+                
                 if done:
                     reward += self.opt.end_reward
                 score += reward
@@ -362,8 +397,18 @@ class BootstrapDQN(MaskEnsembleDQN):
                 ep_Q.append(Q)
                 ep_loss.append(self.loss)
                 if done:
+                    num_terminations += (terminated and reward < 1)
+                    if self.opt.use_risk:
+                        # print(ep_obs, )
+                        e_risks = list(reversed(range(t+1))) if terminated and reward < 1 else [t+1]*(t+1)
+                        # print(e_risks)
+                        for i in range(t+1):
+                            try:
+                                self.risk_stats[ep_obs[i]].append(e_risks[i])
+                            except:
+                                self.risk_stats[ep_obs[i]] = [e_risks[i]]
+                        ep_obs = []
                     break 
-
             #wandb.log({"V(s) (VAR)": np.var(ep_Q), "V(s) (Mean)": np.mean(ep_Q),
             #    "V(s) (Min)": np.min(ep_Q), "V(s) (Max)": np.max(ep_Q), 
             #    "V(s) (Median)": np.median(ep_Q)}, commit=False)
@@ -372,12 +417,16 @@ class BootstrapDQN(MaskEnsembleDQN):
             #    "Loss (Median)": np.median(ep_loss)}, commit=False)
             #if len(ep_var) > 0: # if there are entries in the variance list
             #    self.train_log(ep_var, ep_weights, eff_bs_list, eps_list)
-            if i_episode % self.opt.test_every == 0:
-                self.test(episode=i_episode)
+            # if i_episode % self.opt.test_every == 0:
+            #     self.test(episode=i_episode)
  
             scores_window.append(score)        # save most recent score
             scores.append(score)               # save most recent score
             eps = max(eps_end, eps_decay*eps)  # decrease epsilon
+            wandb.log({"Moving Average Return/100episode": np.mean(scores_window)}, i_episode)
+            wandb.log({"Num terminations ": num_terminations}, i_episode)
+            wandb.log({"Episode": i_episode-1}, i_episode)
+
             #wandb.log({"Moving Average Return/100episode": np.mean(scores_window)})
             print('\rEpisode {}\tAverage Score: {:.2f}'.format(i_episode, np.mean(scores_window)), end="")
             if i_episode % 100 == 0:

@@ -27,10 +27,10 @@ import warnings
 model_dict = {"DQN"                        : DQNAgent,
               "VarDQN"                     : LossAttDQN,
               "EnsembleDQN"                : EnsembleDQN,
-              "BootstrapDQN"               : RPFMaskEnsembleDQN,
+            #   "BootstrapDQN"               : RPFMaskEnsembleDQN,
               "IV_EnsembleDQN"             : IV_DQN,              
               "IV_BootstrapDQN"            : IV_BootstrapDQN,
-              "BootstrapDQN"               : RPFBootstrapDQN,
+              "BootstrapDQN"               : BootstrapDQN,
               "IV_BootstrapDQN"            : IV_RPFBootstrapDQN,
               "IV_EnsembleDQN"             : IV_DQN,              
               "IV_VarDQN"                  : IV_LossAttDQN,
@@ -214,8 +214,8 @@ if __name__ == "__main__":
         os.makedirs(opt.log_dir)
     except:
         pass
-    wandb.init(config=vars(opt), entity="manila95",
-                    project="risk-aware-exploration",
+    wandb.init(config=vars(opt), entity="kaustubh_umontreal",
+                    project="risk_aware_exploration",
                     monitor_gym=True,
                     save_code=True)
                     
