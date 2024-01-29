@@ -128,3 +128,45 @@ class MaskReplayBuffer(ReplayBuffer):
         masks = torch.from_numpy(np.vstack([e.mask for e in experiences if e is not None])).bool().to(self.device)
         return (states, actions, rewards, next_states, dones, masks)
 
+
+class ReplayBufferBalanced:
+        def __init__(self, buffer_size=100000):
+                self.obs_risky = None 
+                self.next_obs_risky = None
+                self.actions_risky = None 
+                self.rewards_risky = None 
+                self.dones_risky = None
+                self.risks_risky = None 
+                self.dist_to_fails_risky = None 
+                self.costs_risky = None
+
+                self.obs_safe = None 
+                self.next_obs_safe = None
+                self.actions_safe = None 
+                self.rewards_safe = None 
+                self.dones_safe = None
+                self.risks_safe = None 
+                self.dist_to_fails_safe = None 
+                self.costs_safe = None
+
+        def add_risky(self, obs, risk):              
+                self.obs_risky = obs if self.obs_risky is None else torch.concat([self.obs_risky, obs], axis=0)
+                self.risks_risky = risk if self.risks_risky is None else torch.concat([self.risks_risky, risk], axis=0)
+
+        def add_safe(self, obs, risk):
+                self.obs_safe = obs if self.obs_safe is None else torch.concat([self.obs_safe, obs], axis=0)
+                self.risks_safe = risk if self.risks_safe is None else torch.concat([self.risks_safe, risk], axis=0)
+
+        def sample(self, sample_size):
+                idx_risky = range(self.obs_risky.size()[0])
+                idx_safe = range(self.obs_safe.size()[0])
+                sample_risky_idx = np.random.choice(idx_risky, int(sample_size/2))
+                sample_safe_idx = np.random.choice(idx_safe, int(sample_size/2))
+
+                return {"obs": torch.cat([self.obs_risky[sample_risky_idx], self.obs_safe[sample_safe_idx]], 0),
+                        "risks": torch.cat([self.risks_risky[sample_risky_idx], self.risks_safe[sample_safe_idx]], 0)}
+        
+
+
+
+                        

@@ -41,6 +41,15 @@ class DQNAgent():
         self.mask = False
 
         # Q-Network
+        self.fear_network = FearNet(self.state_size)
+        self.fear_opt = optim.Adam(self.fear_network.parameters(), lr=opt.lr)
+        self.fear_criterion = nn.BCEWithLogitsLoss()
+        self.fear_rb = ReplayBufferBalanced()
+        self.fear_lambda = opt.fear_lambda
+        self.fear_network.eval()
+        
+
+        # Q-Network
         self.qnetwork_local = QNetwork(self.state_size, self.action_size, opt.net_seed).to(self.device)
         self.qnetwork_target = QNetwork(self.state_size, self.action_size, opt.net_seed).to(self.device)
         self.optimizer = optim.Adam(self.qnetwork_local.parameters(), lr=opt.lr)
@@ -96,6 +105,16 @@ class DQNAgent():
         else:
             return random.choice(np.arange(self.action_size)), np.mean(action_values)
 
+
+    def get_fear(self, state):
+        def_risk = [0.1]*10
+        pos = list(zip(*np.where(state == 2)))[0][0]
+        try:
+            risk = (self.risk_stats[pos] < self.fear_radius) / len(self.risk_stats[pos])
+        except:
+            risk = 0
+        return risk
+    
     def learn(self, experiences, gamma):
         """Update value parameters using given batch of experience tuples.
         Params
@@ -107,6 +126,9 @@ class DQNAgent():
         # Get max predicted Q values (for next states) from target model
         Q_targets_next = self.qnetwork_target(next_states).detach().max(1)[0].unsqueeze(1)
         # Compute Q targets for current states 
+        with torch.no_grad():
+            # print(Q_targets_next.size(), self.fear_network(next_states)[:, 1].size())
+            Q_targets_next = Q_targets_next - self.fear_lambda * self.fear_network(next_states)[:, 1].unsqueeze(1)
         Q_targets = rewards + (gamma * Q_targets_next * (1 - dones))
 
         # Get expected Q values from local model
@@ -151,6 +173,16 @@ class DQNAgent():
             loss *= mask
         return loss.sum(0)
 
+    def update_fear_model(self):
+        self.fear_network.train()
+        data = self.fear_rb.sample(self.opt.batch_size)
+        pred = self.fear_network(data["obs"])
+       
+        loss = self.fear_criterion(pred, torch.nn.functional.one_hot(data["risks"].to(torch.int64), 2).squeeze().float())
+        self.fear_opt.zero_grad()
+        loss.backward()
+        self.fear_opt.step()
+        self.fear_network.eval()
 
     def train(self, n_episodes=1000, max_t=1000, eps_start=1.0, eps_end=0.01, eps_decay=0.995):
         """Deep Q-Learning.
@@ -179,8 +211,9 @@ class DQNAgent():
                 state = np.array(list(state) + [safety])
             elif self.opt.safety_info == "emp_risk":
                 state = np.array(list(state) + def_risk)
-
+            self.fear_lambda = self.opt.fear_lambda * eps
             score, ep_var, ep_weights, eff_bs_list, xi_list, ep_Q, ep_loss = 0, [], [], [], [], [], []   # list containing scores from each episode
+            f_next_obs = None
             for t in range(max_t):
                 pos = list(zip(*np.where(state == 2)))[0][0]
                 ep_obs.append(pos)
@@ -198,11 +231,26 @@ class DQNAgent():
                     except:
                         risk = def_risk
                     next_state = np.array(list(next_state) + def_risk)
+
+                if i_episode > 50:
+                    self.update_fear_model()
+
+                f_next_obs = torch.Tensor(next_state).unsqueeze(0) if f_next_obs is None else torch.cat([f_next_obs, torch.Tensor(next_state).unsqueeze(0)])
                 
                 logs = self.step(state, action, reward, next_state, not not_done)
                 state = next_state
                 if not not_done:
-                    e_risks = list(reversed(range(t+1))) if t < max_t-1 else [t]*t
+                    e_risks = list(reversed(range(t+1))) if int(self.env.environment_data['safety'] < 1) else [t+1]*(t+1)
+                    e_risks = np.array(e_risks)
+                    f_risks = torch.Tensor(e_risks)
+                    idx_risky = (e_risks<=self.opt.fear_radius)
+                    idx_safe = (e_risks>self.opt.fear_radius)
+                    risk_ones = torch.ones_like(f_risks)
+                    risk_zeros = torch.zeros_like(f_risks)
+
+                    self.fear_rb.add_risky(f_next_obs[idx_risky, :], risk_ones)
+                    self.fear_rb.add_safe(f_next_obs[idx_safe, :], risk_zeros)
+
                     for i in range(t+1):
                         self.risk_stats[ep_obs[i]].append(e_risks[i])
 
