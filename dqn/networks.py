@@ -27,6 +27,44 @@ class QNetwork(nn.Module):
         x = F.relu(self.fc1(state))
         x = F.relu(self.fc2(x))
         return self.fc3(x)
+    
+
+def get_activation(name):
+    activation_dict = {
+        'relu': nn.ReLU(),
+        "sigmoid": nn.Sigmoid(),
+        "tanh": nn.Tanh(),
+        "softmax": nn.Softmax(dim=1),
+        "logsoftmax": nn.LogSoftmax(dim=1),
+    }
+    return activation_dict[name]
+
+class FearNet(nn.Module):
+    def __init__(self, obs_size=64, fc1_size=64, fc2_size=64,\
+                  fc3_size=64, fc4_size=64, out_size=2, batch_norm=True, activation='relu', model_type="state_risk", action_size=2):
+        super().__init__()
+        self.obs_size = obs_size
+        self.batch_norm = batch_norm
+        self.model_type = model_type
+        self.fc1 = nn.Linear(obs_size, fc1_size)
+        self.fc2 = nn.Linear(fc1_size, fc2_size)
+        self.out = nn.Linear(fc2_size, out_size)
+
+        ## Batch Norm layers
+        self.bnorm1 = nn.BatchNorm1d(fc1_size)
+        self.bnorm2 = nn.BatchNorm1d(fc2_size)
+
+        # Activation functions
+        self.activation = get_activation(activation)
+
+        self.softmax = get_activation("softmax")
+        self.dropout = nn.Dropout(0.2)
+
+    def forward(self, x, action=None):
+        x = self.bnorm1(self.activation(self.fc1(x)))
+        x = self.bnorm2(self.activation(self.fc2(x)))
+        out = self.softmax(self.out(x))
+        return out
 
 
 
