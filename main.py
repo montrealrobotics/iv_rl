@@ -25,6 +25,7 @@ import warnings
 # os.environ["WANDB_SILENT"] = "true"
 
 model_dict = {"DQN"                        : DQNAgent,
+              "C51"                        : c51,
               "VarDQN"                     : LossAttDQN,
               "EnsembleDQN"                : EnsembleDQN,
             #   "BootstrapDQN"               : RPFMaskEnsembleDQN,
@@ -76,7 +77,7 @@ parser.add_argument("--batch_size", type=int, default=64,
                    help="batch size")
 parser.add_argument("--eff_batch_size", type=int, default=64,
                     help="effective batch size")
-parser.add_argument("--buffer_size", type=int, default=int(1e5),
+parser.add_argument("--buffer_size", type=int, default=int(1e6),
                     help="Replay Buffer Size")
 parser.add_argument("--num_nets", type=int, default=5,
                     help="Number of Qnets in the ensemble DQN")
