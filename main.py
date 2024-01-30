@@ -209,7 +209,7 @@ if "Mean_Target" in opt.model:
     opt.mean_target = True
 
 if __name__ == "__main__":
-    device = torch.device("cpu")
+    device = torch.device("cuda")
     try:
         os.makedirs(opt.log_dir)
     except:

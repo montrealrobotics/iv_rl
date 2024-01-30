@@ -103,8 +103,8 @@ class DQNAgent():
         if self.opt.use_risk:
             state_risk = np.array([self.get_risk(states[i]) for i in range(states.size()[0])])
             next_state_risk = np.array([self.get_risk(next_states[i]) for i in range(next_states.size()[0])])
-            states = torch.from_numpy(np.concatenate([states, state_risk], axis=-1)).float()
-            next_states = torch.from_numpy(np.concatenate([next_states, next_state_risk], axis=-1)).float()
+            states = torch.cat([states, torch.Tensor(state_risk).to(self.device)], axis=-1).float()
+            next_states = torch.cat([next_states, torch.Tensor(next_state_risk).to(self.device)], axis=-1).float()
         
         # Get max predicted Q values (for next states) from target model
         Q_targets_next = self.qnetwork_target(next_states).detach().max(1)[0].unsqueeze(1)
@@ -212,10 +212,10 @@ class DQNAgent():
                 ep_Q.append(Q)
                 ep_loss.append(self.loss)
                 if done:
-                    num_terminations += (terminated and reward < 1)
+                    num_terminations += (terminated and reward == 0)
                     if self.opt.use_risk:
                         # print(ep_obs, )
-                        e_risks = list(reversed(range(t+1))) if terminated and reward < 1 else [t+1]*(t+1)
+                        e_risks = list(reversed(range(t+1))) if terminated and reward == 0 else [t+1]*(t+1)
                         # print(e_risks)
                         for i in range(t+1):
                             try:
