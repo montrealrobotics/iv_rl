@@ -25,7 +25,8 @@ import warnings
 # os.environ["WANDB_SILENT"] = "true"
 
 model_dict = {"DQN"                        : DQNAgent,
-              "C51"                        : c51,
+              "C51"                        : C51,
+              "IntFear"                    : IntrinsicFear,
               "VarDQN"                     : LossAttDQN,
               "EnsembleDQN"                : EnsembleDQN,
             #   "BootstrapDQN"               : RPFMaskEnsembleDQN,
@@ -178,6 +179,10 @@ parser.add_argument("--use-risk", type=lambda x: bool(strtobool(x)), default=Fal
     help="Use risk model or not ")
 parser.add_argument("--quantile-size", type=int, default=4, help="size of the risk quantile ")
 parser.add_argument("--quantile-num", type=int, default=10, help="number of quantiles to make")
+
+
+parser.add_argument("--fear-radius", default=2, type=int)
+parser.add_argument("--fear-lambda", default=1, type=float)
 target_type = ["", "_mean_target"]
 
 
@@ -210,7 +215,7 @@ if "Mean_Target" in opt.model:
     opt.mean_target = True
 
 if __name__ == "__main__":
-    device = torch.device("cuda")
+    device = torch.device("cpu")
     try:
         os.makedirs(opt.log_dir)
     except:
