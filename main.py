@@ -175,7 +175,7 @@ parser.add_argument('--num_layer', default=2, type=int)
 parser.add_argument('--save_freq', default=0, type=int)
 
 parser.add_argument("--fear-radius", default=2, type=int)
-parser.add_argument("--fear-lambda", default=1, type=int)
+parser.add_argument("--fear-lambda", default=1, type=float)
 
 target_type = ["", "_mean_target"]
 
@@ -202,7 +202,7 @@ opt.batch_size = int(opt.eff_batch_size / opt.mask_prob)
 opt.minimal_eff_bs = int(opt.minimal_eff_bs_ratio * opt.eff_batch_size)
 
 print(vars(opt))
-wandb.init(config=vars(opt), entity="kaustubh95",
+wandb.init(config=vars(opt), entity="kaustubh_umontreal",
                    project="risk_aware_exploration",
                    monitor_gym=True,
                     save_code=True)
