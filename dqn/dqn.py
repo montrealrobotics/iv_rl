@@ -25,6 +25,13 @@ class DQNAgent():
             opt (dict): command line options for the model
             device (str): cpu or gpu
         """
+
+        self.risk_stats = {}
+        import pickle
+        if os.path.exists(opt.risk_path):
+            self.risk_stats = pickle.load(open(opt.risk_path, "rb"))
+            opt.use_risk = True 
+            
         self.env = env
         self.opt = opt
         self.state_size = 1 #$env.observation_space.shape[0]
@@ -39,12 +46,17 @@ class DQNAgent():
         self.qnetwork_target = QNetwork(self.state_size+self.risk_size, self.action_size, opt.net_seed).to(self.device)
         self.optimizer = optim.Adam(self.qnetwork_local.parameters(), lr=opt.lr)
 
+        if os.path.exists(opt.policy_path):
+            self.qnetwork_local.load_state_dict(torch.load(opt.policy_path))
+            self.qnetwork_target.load_state_dict(torch.load(opt.policy_path))
+
         # Replay memory
         self.memory = ReplayBuffer(opt, self.action_size, 42, self.device, self.mask)
         # Initialize time step (for updating every UPDATE_EVERY steps)
         self.t_step = 0
         self.xi = 0
         self.loss = 0 
+
 
     def step(self, state, action, reward, next_state, done):
         # Save experience in replay memory
@@ -250,6 +262,12 @@ class DQNAgent():
             if i_episode % 100 == 0:
                 print('\rEpisode {}\tAverage Score: {:.2f}'.format(i_episode, np.mean(scores_window)))
             #self.save(scores)
+                
+        torch.save(self.qnetwork_local.state_dict(), "qnet_frozenlake.pt")
+        if self.opt.use_risk:
+            import pickle
+            with open("risk_stats_frozen_lake.pkl", "wb") as f:
+                pickle.dump(self.risk_stats, f)
 
     def test(self, episode, num_trials=5, max_t=1000):
         score_list, variance_list = [], []
@@ -445,7 +463,6 @@ class IntrinsicFear(DQNAgent):
         scores = []
         scores_window = deque(maxlen=100)  # last 100 scores
         eps = eps_start                    # initialize epsilon
-        self.risk_stats = {}
         def_risk = [0.1]*10
         ep_obs = []
         num_terminations = 0
