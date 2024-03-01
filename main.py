@@ -78,7 +78,7 @@ parser.add_argument("--batch_size", type=int, default=64,
                    help="batch size")
 parser.add_argument("--eff_batch_size", type=int, default=64,
                     help="effective batch size")
-parser.add_argument("--buffer_size", type=int, default=int(1e5),
+parser.add_argument("--buffer_size", type=int, default=int(1e6),
                     help="Replay Buffer Size")
 parser.add_argument("--num_nets", type=int, default=5,
                     help="Number of Qnets in the ensemble DQN")
@@ -202,7 +202,7 @@ opt.batch_size = int(opt.eff_batch_size / opt.mask_prob)
 opt.minimal_eff_bs = int(opt.minimal_eff_bs_ratio * opt.eff_batch_size)
 
 print(vars(opt))
-wandb.init(config=vars(opt), entity="manila95",
+wandb.init(config=vars(opt), entity="kaustubh_umontreal",
                    project="risk_aware_exploration",
                    monitor_gym=True,
                     save_code=True)

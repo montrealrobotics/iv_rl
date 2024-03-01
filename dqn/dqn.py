@@ -7,6 +7,10 @@ import os
 import wandb
 import random
 import numpy as np
+import matplotlib.pyplot as plt
+import cv2
+from PIL import Image, ImageDraw, ImageFont 
+
 from collections import namedtuple, deque, Counter
 
 from utils import * 
@@ -151,6 +155,21 @@ class DQNAgent():
             loss *= mask
         return loss.sum(0)
 
+    def save_board(self, image, save_path, text="Dummy"):
+        image = Image.fromarray((image.transpose( 1, 2, 0) / np.max(image) * 255).astype(np.uint8))
+        image = image.resize((160, 120), Image.NEAREST)
+        draw = ImageDraw.Draw(image)
+        font = ImageFont.load_default()
+        draw.text((10, 10), text, fill="white", font=font)
+        image.save(save_path)
+
+        # cv2.imwrite(save_path, (image.transpose( 1, 2, 0) / np.max(image) * 255).astype(np.uint8))
+        # plt.imshow(image.transpose(1, 2, 0))
+        # plt.axis("off")
+        # # plt.text(10, 10, text, fontsize=15)
+        # plt.title(text)
+        # plt.savefig(save_path, dpi=10)
+
 
     def train(self, n_episodes=1000, max_t=1000, eps_start=1.0, eps_end=0.01, eps_decay=0.995):
         """Deep Q-Learning.
@@ -170,25 +189,55 @@ class DQNAgent():
         ep_obs = []
         def_risk = [0.1]*10
         num_terminations = 0
+        storage_path = os.path.join("./islandnav/", self.opt.safety_info)
+        try:
+            os.makedirs(os.path.join(storage_path, "state_visit"))
+        except:
+            pass
+        state_count = np.zeros(48)
         for i_episode in range(1, n_episodes+1):
             self.env = IslandNavigationEnvironment(level_num=0)
-            _, _, _, state = self.env.reset()
-            state = state["board"].ravel()
+            _, _, _, old_state = self.env.reset()
+            # if i_episode-1 % 10 == 0:
+            fig, ax = plt.subplots(1, 2)
+            l = ax[1].imshow(state_count.reshape(6, 8), cmap="coolwarm")
+            ax[1].axis("off")
+            # plt.style.use('ggplot')
+            # .savefig(os.path.join(storage_path, "state_visit", "%d.png"%i_episode))
+            # plt.close()
+            ax[0].imshow(old_state["RGB"].transpose(1, 2, 0))
+            ax[0].axis("off")
+            fig.subplots_adjust(right=0.8)
+            cbar_ax = fig.add_axes([0.85, 0.15, 0.05, 0.7])
+            fig.colorbar(l, cax = cbar_ax)
+            fig.text(0.4, 0.8, "Episode = %d"%i_episode)
+            fig.savefig(os.path.join(storage_path, "state_visit", "%d.png"%i_episode))
+            # fig.close()
+
+
+                # self.save_board(state["RGB"], os.path.join(storage_path, "%d_%d.png"%(i_episode, 0)), "Episode=%d | Step=%d"%(i_episode, 0))
+            state = old_state["board"].ravel()
             if self.opt.safety_info == "gt":
                 safety = self.env.environment_data['safety']
                 state = np.array(list(state) + [safety])
             elif self.opt.safety_info == "emp_risk":
                 state = np.array(list(state) + def_risk)
 
+
+
+            
             score, ep_var, ep_weights, eff_bs_list, xi_list, ep_Q, ep_loss = 0, [], [], [], [], [], []   # list containing scores from each episode
             for t in range(max_t):
-                pos = list(zip(*np.where(state == 2)))[0][0]
+                pos = list(zip(*np.where(old_state["board"].ravel() == 2)))[0][0]
+                state_count[pos] += 1
                 ep_obs.append(pos)
                 action, Q = self.act(state, eps, is_train=True)
-                _, reward, not_done, next_state = self.env.step(action)
+                _, reward, not_done, old_next_state = self.env.step(action)
+                if i_episode % 10 == 0:
+                    self.save_board(old_next_state["RGB"], os.path.join(storage_path, "%d_%d.png"%(i_episode, t)), "Episode=%d | Step=%d"%(i_episode, t))
                 if reward is None:
                     reward = 0
-                next_state = next_state['board'].ravel()
+                next_state = old_next_state['board'].ravel()
                 if self.opt.safety_info == "gt":
                     safety = self.env.environment_data['safety']
                     next_state = np.array(list(next_state) + [safety])
@@ -201,6 +250,7 @@ class DQNAgent():
                 
                 logs = self.step(state, action, reward, next_state, not not_done)
                 state = next_state
+                old_state = old_next_state
                 if not not_done:
                     e_risks = list(reversed(range(t+1))) if t < max_t-1 else [t]*t
                     for i in range(t+1):
@@ -233,7 +283,12 @@ class DQNAgent():
 	    #        self.train_log(ep_var, ep_weights, eff_bs_list, eps_list)
             # if i_episode % self.opt.test_every == 0:
             #     self.test(episode=i_episode)
- 
+            # print(state)
+            try:
+                pos = list(zip(*np.where(old_state["board"].ravel() == 2)))[0][0]
+                state_count[pos] += 1
+            except:
+                pass
             scores_window.append(score)        # save most recent score
             scores.append(score)               # save most recent score
             eps = max(eps_end, eps_decay*eps)  # decrease epsilon
@@ -246,6 +301,8 @@ class DQNAgent():
             if i_episode % 100 == 0:
                 print('\rEpisode {}\tAverage Score: {:.2f}'.format(i_episode, np.mean(scores_window)))
             #self.save(scores)
+            with open(os.path.join(storage_path, "state_visitations.pkl"), "wb") as f:
+                pickle.dump(state_count, f, protocol=pickle.HIGHEST_PROTOCOL)
 
             with open("risk_stats.pkl", "wb") as f:
                 pickle.dump(self.risk_stats, f, protocol=pickle.HIGHEST_PROTOCOL)
