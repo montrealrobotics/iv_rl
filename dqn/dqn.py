@@ -195,6 +195,11 @@ class DQNAgent():
         except:
             pass
         state_count = np.zeros(48)
+        episodes_list = []
+        state_count_list = []
+        states_repr = []
+        import pandas as pd
+        df = pd.DataFrame(columns=["state", "episode", "count"])
         for i_episode in range(1, n_episodes+1):
             self.env = IslandNavigationEnvironment(level_num=0)
             _, _, _, old_state = self.env.reset()
@@ -213,6 +218,10 @@ class DQNAgent():
             fig.text(0.4, 0.8, "Episode = %d"%i_episode)
             fig.savefig(os.path.join(storage_path, "state_visit", "%d.png"%i_episode))
             # fig.close()
+
+            state_count_list.extend(list(state_count))
+            episodes_list.extend([i_episode]*48)
+            states_repr.extend(list(range(48)))
 
 
                 # self.save_board(state["RGB"], os.path.join(storage_path, "%d_%d.png"%(i_episode, 0)), "Episode=%d | Step=%d"%(i_episode, 0))
@@ -301,11 +310,15 @@ class DQNAgent():
             if i_episode % 100 == 0:
                 print('\rEpisode {}\tAverage Score: {:.2f}'.format(i_episode, np.mean(scores_window)))
             #self.save(scores)
-            with open(os.path.join(storage_path, "state_visitations.pkl"), "wb") as f:
-                pickle.dump(state_count, f, protocol=pickle.HIGHEST_PROTOCOL)
+        df["state"] = states_repr
+        df["episode"] = episodes_list
+        df["count"] = state_count_list
+        df.to_csv(os.path.join(storage_path, "stats.csv"), encoding="utf-8")
+        with open(os.path.join(storage_path, "state_visitations.pkl"), "wb") as f:
+            pickle.dump(state_count, f, protocol=pickle.HIGHEST_PROTOCOL)
 
-            with open("risk_stats.pkl", "wb") as f:
-                pickle.dump(self.risk_stats, f, protocol=pickle.HIGHEST_PROTOCOL)
+        with open("risk_stats.pkl", "wb") as f:
+            pickle.dump(self.risk_stats, f, protocol=pickle.HIGHEST_PROTOCOL)
 
     def test(self, episode, num_trials=5, max_t=1000):
         score_list, variance_list = [], []
