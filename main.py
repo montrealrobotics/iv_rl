@@ -1,5 +1,5 @@
 import os
-import gym 
+import gymnasium as gym
 import argparse
 
 import torch
@@ -8,13 +8,9 @@ import torch.optim as optim
 import torch.nn.functional as F
 
 from dqn import * 
-from sac import *
+# from sac import *
 from utils import *
 from config import config 
-from codecarbon import EmissionsTracker
-tracker = EmissionsTracker()
-tracker.start()
-
 import os 
 import time
 import warnings
@@ -43,21 +39,21 @@ model_dict = {"DQN"                        : DQNAgent,
               "UWAC_VarEnsembleDQN"        : UWAC_LakshmiBootstrapDQN,
 
 
-              "SAC"                        : SACTrainer,
-              "VarSAC"                     : VarSACTrainer,
-              "IV_VarSAC"                  : IV_VarSAC,
+              # "SAC"                        : SACTrainer,
+              # "VarSAC"                     : VarSACTrainer,
+              # "IV_VarSAC"                  : IV_VarSAC,
 
-              "EnsembleSAC"                : EnsembleSAC,
-              "IV_EnsembleSAC"             : IV_EnsembleSAC,
-              "VarEnsembleSAC"             : VarEnsembleSAC,
-              "IV_SAC"                     : IV_VarEnsembleSAC,
-              "IV_VarEnsembleSAC"          : IV_VarEnsembleSAC,
+              # "EnsembleSAC"                : EnsembleSAC,
+              # "IV_EnsembleSAC"             : IV_EnsembleSAC,
+              # "VarEnsembleSAC"             : VarEnsembleSAC,
+              # "IV_SAC"                     : IV_VarEnsembleSAC,
+              # "IV_VarEnsembleSAC"          : IV_VarEnsembleSAC,
 
-              "SunriseSAC"                 : SunriseSAC,
-              "Sunrise_VarEnsembleSAC"     : Sunrise_VarEnsembleSAC,
+              # "SunriseSAC"                 : SunriseSAC,
+              # "Sunrise_VarEnsembleSAC"     : Sunrise_VarEnsembleSAC,
               
-              "UWACSAC"                    : UWACSAC,
-              "UWAC_VarEnsembleSAC"        : UWAC_VarEnsembleSAC
+              # "UWACSAC"                    : UWACSAC,
+              # "UWAC_VarEnsembleSAC"        : UWAC_VarEnsembleSAC
               }
 
 
@@ -172,6 +168,18 @@ parser.add_argument('--num_layer', default=2, type=int)
 parser.add_argument('--save_freq', default=0, type=int)
 
 
+parser.add_argument("--use-risk", type=lambda x: bool(strtobool(x)), default=False, nargs="?", const=True,
+    help="Use risk model or not ")
+parser.add_argument("--quantile-size", type=int, default=4, help="size of the risk quantile ")
+parser.add_argument("--quantile-num", type=int, default=10, help="number of quantiles to make")
+parser.add_argument("--start-using-risk", type=int, default=1000, help="number of quantiles to make")
+
+parser.add_argument("--risk-lr", type=float, default=None,
+                    help="Learning rate for SGD update")
+parser.add_argument("--risk-batch-size", type=int, default=None,
+                   help="batch size")
+parser.add_argument("--filter-policies", type=lambda x: bool(strtobool(x)), default=True, nargs="?", const=True,
+    help="Use risk model or not ")
 
 target_type = ["", "_mean_target"]
 
@@ -204,7 +212,8 @@ if "Mean_Target" in opt.model:
     opt.mean_target = True
 
 if __name__ == "__main__":
-    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+    # device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+    device = torch.device("cpu")
     try:
         os.makedirs(opt.log_dir)
     except:
@@ -213,10 +222,8 @@ if __name__ == "__main__":
     Model = model_dict[opt.model]
     if "sac" not in opt.model.lower():
         env = gym.make(opt.env)
-        env.seed(opt.env_seed)
+        # env.seed(opt.env_seed)
         agent = Model(env, opt, device=device)
         agent.train(n_episodes=opt.num_episodes, eps_decay=opt.eps_decay)
     else:
         run_sac(Model, opt)
-
-tracker.stop()

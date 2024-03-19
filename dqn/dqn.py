@@ -33,11 +33,22 @@ class DQNAgent():
         self.test_scores = []
         self.device = device
         self.mask = False
+        self.risk_size = opt.quantile_num if opt.use_risk else 0 
 
         # Q-Network
-        self.qnetwork_local = QNetwork(self.state_size, self.action_size, opt.net_seed).to(self.device)
-        self.qnetwork_target = QNetwork(self.state_size, self.action_size, opt.net_seed).to(self.device)
+        self.qnetwork_local = QNetwork(self.state_size+self.risk_size, self.action_size, opt.net_seed).to(self.device)
+        self.qnetwork_target = QNetwork(self.state_size+self.risk_size, self.action_size, opt.net_seed).to(self.device)
         self.optimizer = optim.Adam(self.qnetwork_local.parameters(), lr=opt.lr)
+
+        ## Risk model 
+        if opt.use_risk:
+            self.risk_model = RiskNet(self.state_size, self.risk_size, opt.net_seed).to(self.device)
+            self.risk_rb = RiskRB(opt.buffer_size)
+            self.opt_risk = optim.Adam(self.risk_model.parameters(), lr=opt.lr if opt.risk_lr is None else opt.risk_lr)
+            self.risk_criterion = criterion = nn.NLLLoss()
+
+            self.risk_bins = np.array([i*self.opt.quantile_size for i in range(self.opt.quantile_num+1)])
+
 
         # Replay memory
         self.memory = ReplayBuffer(opt, self.action_size, 42, self.device, self.mask)
@@ -45,6 +56,7 @@ class DQNAgent():
         self.t_step = 0
         self.xi = 0
         self.loss = 0 
+        self.global_step = 0
 
     def step(self, state, action, reward, next_state, done):
         # Save experience in replay memory
@@ -75,7 +87,10 @@ class DQNAgent():
         state = torch.from_numpy(state).float().unsqueeze(0).to(self.device)
         self.qnetwork_local.eval()
         with torch.no_grad():
-            action_values = self.qnetwork_local(state)
+            if self.opt.use_risk:
+                action_values = self.qnetwork_local(torch.cat([state, self.get_risk(state)], axis=-1))
+            else:
+                action_values = self.qnetwork_local(state)
         self.qnetwork_local.train()
         action_values = action_values.cpu().data.numpy()
         # Epsilon-greedy action selection
@@ -83,6 +98,29 @@ class DQNAgent():
             return np.argmax(action_values), np.mean(action_values)
         else:
             return random.choice(np.arange(self.action_size)), np.mean(action_values)
+
+
+    def get_risk(self, state):
+        def_risk = np.array([1 / self.risk_size]*self.risk_size)
+        if self.global_step > self.opt.start_using_risk:
+            with torch.no_grad():
+                risk = self.risk_model(state)
+        else:
+            risk = torch.Tensor([def_risk]*state.size()[0]).to(self.device)
+        return risk
+
+    def update_risk(self):
+        self.risk_model.train()
+        data = self.risk_rb.sample(self.opt.batch_size if self.opt.risk_batch_size is None else self.opt.risk_batch_size)
+        pred = self.risk_model(data["next_obs"].to(self.device))
+        self.opt_risk.zero_grad()
+        loss = self.risk_criterion(pred, torch.argmax(data["risks"].squeeze(), axis=1).to(self.device))
+        loss.backward()
+        self.opt_risk.step()
+        self.risk_model.eval()
+        return loss.item()
+
+
 
     def learn(self, experiences, gamma):
         """Update value parameters using given batch of experience tuples.
@@ -92,6 +130,12 @@ class DQNAgent():
             gamma (float): discount factor
         """
         states, actions, rewards, next_states, dones = experiences
+
+        ## Risk augmentation
+        if self.opt.use_risk:
+            states = torch.cat([states, self.get_risk(states)], axis=-1)
+            next_states = torch.cat([next_states, self.get_risk(next_states)], axis=-1)
+
         # Get max predicted Q values (for next states) from target model
         Q_targets_next = self.qnetwork_target(next_states).detach().max(1)[0].unsqueeze(1)
         # Compute Q targets for current states 
@@ -110,6 +154,10 @@ class DQNAgent():
 
         # In order to log the loss value
         self.loss = loss.item()
+
+        ## Update risk model 
+        if self.opt.use_risk and len(self.risk_rb) > self.opt.batch_size:
+            self.update_risk()
 
         # ------------------- update target network ------------------- #
         self.soft_update(self.qnetwork_local, self.qnetwork_target, self.opt.tau)                     
@@ -157,14 +205,29 @@ class DQNAgent():
         scores_window = deque(maxlen=100)  # last 100 scores
         eps = eps_start                    # initialize epsilon
         for i_episode in range(1, n_episodes+1):
-            state = self.env.reset()
+            state, _ = self.env.reset()
             score, ep_var, ep_weights, eff_bs_list, xi_list, ep_Q, ep_loss = 0, [], [], [], [], [], []   # list containing scores from each episode
+            ep_next_state = None 
             for t in range(max_t):
                 action, Q = self.act(state, eps, is_train=True)
-                next_state, reward, done, _ = self.env.step(action)
+                next_state, reward, terminated, truncated, _ = self.env.step(action)
+                done = np.logical_or(terminated, truncated)
                 logs = self.step(state, action, reward, next_state, done)
+                if self.opt.use_risk:
+                    next_state_tensor = torch.from_numpy(next_state).unsqueeze(0)
+                    ep_next_state = next_state_tensor if ep_next_state is None else torch.cat([ep_next_state, next_state_tensor], 0) 
+
                 state = next_state
+                self.global_step += 1
                 if done:
+                    if self.opt.use_risk:
+                        e_risks = list(reversed(range(t+1))) if terminated else [t+1]*(t+1)
+                        e_risks_quant = torch.Tensor(np.apply_along_axis(lambda x: np.histogram(x, bins=self.risk_bins)[0], 1, np.expand_dims(e_risks, 1)))
+                        if self.opt.filter_policies and terminated:
+                            self.risk_rb.add(ep_next_state, e_risks_quant, torch.Tensor(e_risks))
+                        else:
+                            self.risk_rb.add(ep_next_state, e_risks_quant, torch.Tensor(e_risks))
+                        ep_next_state = None
                     reward += self.opt.end_reward
                 score += reward
                 if logs is not None:
@@ -180,14 +243,6 @@ class DQNAgent():
                 if done:
                     break 
 
-            #wandb.log({"V(s) (VAR)": np.var(ep_Q), "V(s) (Mean)": np.mean(ep_Q),
-            #    "V(s) (Min)": np.min(ep_Q), "V(s) (Max)": np.max(ep_Q), 
-            #    "V(s) (Median)": np.median(ep_Q)}, commit=False)
-            #wandb.log({"Loss (VAR)": np.var(ep_loss), "Loss (Mean)": np.mean(ep_loss),
-            #    "Loss (Min)": np.min(ep_loss), "Loss (Max)": np.max(ep_loss), 
-            #    "Loss (Median)": np.median(ep_loss)}, commit=False)
-            #if len(ep_var) > 0: # if there are entries in the variance list
-	    #        self.train_log(ep_var, ep_weights, eff_bs_list, eps_list)
             if i_episode % self.opt.test_every == 0:
                 self.test(episode=i_episode)
  
@@ -206,11 +261,12 @@ class DQNAgent():
     def test(self, episode, num_trials=5, max_t=1000):
         score_list, variance_list = [], []
         #for i in range(num_trials):
-        state = self.env.reset()
+        state, _ = self.env.reset()
         score = 0
         for t in range(max_t):
             action, _ = self.act(state, -1)
-            next_state, reward, done, _ = self.env.step(action)
+            next_state, reward, terminated, truncated, _ = self.env.step(action)
+            done = np.logical_or(terminated, truncated)
             state = next_state
             score += reward
             if done:

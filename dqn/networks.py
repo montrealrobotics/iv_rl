@@ -29,7 +29,32 @@ class QNetwork(nn.Module):
         return self.fc3(x)
 
 
+class RiskNet(nn.Module):
+    """Actor (Policy) Model."""
 
+    def __init__(self, state_size, risk_size, seed, fc1_units=64, fc2_units=64):
+        """Initialize parameters and build model.
+        Params
+        ======
+            state_size (int): Dimension of each state
+            action_size (int): Dimension of each action
+            seed (int): Random seed
+            fc1_units (int): Number of nodes in first hidden layer
+            fc2_units (int): Number of nodes in second hidden layer
+        """
+        super(RiskNet, self).__init__()
+        self.seed = torch.manual_seed(seed)
+        self.fc1 = nn.Linear(state_size, fc1_units)
+        self.fc2 = nn.Linear(fc1_units, fc2_units)
+        self.fc3 = nn.Linear(fc2_units, risk_size)
+        self.logsoftmax = nn.LogSoftmax(dim=1)
+        self.dropout = nn.Dropout(0.2)
+
+    def forward(self, state):
+        """Build a network that maps state -> action values."""
+        x = F.relu(self.fc1(state))
+        x = F.relu(self.fc2(x))
+        return self.logsoftmax(self.fc3(x))
 
 class TwoHeadQNetwork(QNetwork):
     """Actor (Policy) Model with 2 heads."""

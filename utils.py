@@ -45,6 +45,39 @@ def get_optimal_xi(variances, minimal_size, epsilon_start):
     return xi
 
 
+class RiskRB:
+    def __init__(self, buffer_size=1000000, data_path="./data/"):
+            self.obs = None 
+            self.next_obs = None
+            self.risks = None 
+            self.dist_to_fails = None 
+            self.data_path = data_path
+            self.buffer_size = buffer_size 
+
+    def add(self, next_obs, risk, dist_to_fail):
+            self.next_obs = next_obs if self.next_obs is None else torch.concat([self.next_obs, next_obs], axis=0)
+            self.risks = risk if self.risks is None else torch.concat([self.risks, risk], axis=0)
+            self.dist_to_fails = dist_to_fail if self.dist_to_fails is None else torch.concat([self.dist_to_fails, dist_to_fail], axis=0)
+
+    def __len__(self):
+        if self.next_obs is not None:
+            return self.next_obs.size()[0]
+        else:
+            return 0
+    
+    def sample(self, sample_size):
+            # print(self.dist_to_fails.size(), self.next_obs.size())
+            if self.next_obs.size()[0] > self.buffer_size:
+                self.next_obs = self.next_obs[-self.buffer_size:]
+                self.risks = self.risks[-self.buffer_size:]
+            idx = range(self.next_obs.size()[0])
+            sample_idx = np.random.choice(idx, sample_size)
+            # print(sample_idx)
+            return {"next_obs": self.next_obs[sample_idx],
+                    "risks": self.risks[sample_idx], 
+                    "dist_to_fail": self.dist_to_fails[sample_idx]}
+
+
 
 class ReplayBuffer:
     """Fixed-size buffer to store experience tuples."""
