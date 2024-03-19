@@ -206,7 +206,11 @@ opt.batch_size = int(opt.eff_batch_size / opt.mask_prob)
 opt.minimal_eff_bs = int(opt.minimal_eff_bs_ratio * opt.eff_batch_size)
 
 print(vars(opt))
-
+import wandb
+run = wandb.init(config=vars(opt), entity="kaustubh_umontreal",
+                   project="risk_aware_exploration",
+                   monitor_gym=True,
+                   sync_tensorboard=True, save_code=True)
 
 if "Mean_Target" in opt.model:
     opt.mean_target = True

@@ -204,6 +204,7 @@ class DQNAgent():
         scores = []
         scores_window = deque(maxlen=100)  # last 100 scores
         eps = eps_start                    # initialize epsilon
+        num_terminations = 0
         for i_episode in range(1, n_episodes+1):
             state, _ = self.env.reset()
             score, ep_var, ep_weights, eff_bs_list, xi_list, ep_Q, ep_loss = 0, [], [], [], [], [], []   # list containing scores from each episode
@@ -219,6 +220,7 @@ class DQNAgent():
 
                 state = next_state
                 self.global_step += 1
+                num_terminations += int(terminated)
                 if done:
                     if self.opt.use_risk:
                         e_risks = list(reversed(range(t+1))) if terminated else [t+1]*(t+1)
@@ -249,7 +251,8 @@ class DQNAgent():
             scores_window.append(score)        # save most recent score
             scores.append(score)               # save most recent score
             eps = max(eps_end, eps_decay*eps)  # decrease epsilon
-            #wandb.log({"Moving Average Return/100episode": np.mean(scores_window)})
+            wandb.log({"Moving Average Return/100episode": np.mean(scores_window)})
+            wandb.log({"Num Terminations": num_terminations})
             #if np.mean(self.test_scores[-100:]) >= self.opt.goal_score and flag:
             #    flag = 0 
             #    wandb.log({"EpisodeSolved": i_episode}, commit=False)
