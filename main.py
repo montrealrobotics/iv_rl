@@ -26,7 +26,7 @@ import warnings
 
 model_dict = {"DQN"                        : DQNAgent,
               "C51"                        : C51,
-              "IntFear"                    : IntrinsicFear,
+              # "IntFear"                    : IntrinsicFear,
               "VarDQN"                     : LossAttDQN,
               "EnsembleDQN"                : EnsembleDQN,
             #   "BootstrapDQN"               : RPFMaskEnsembleDQN,
