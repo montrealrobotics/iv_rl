@@ -9,8 +9,19 @@
 
 In model-free deep reinforcement learning (RL) algorithms, using noisy value estimates to supervise policy evaluation and optimization is detrimental to the sample efficiency. As this noise is heteroscedastic, its effects can be mitigated using uncertainty-based weights in the optimization process. Previous methods rely on sampled ensembles, which do not capture all aspects of uncertainty. We provide a systematic analysis of the sources of uncertainty in the noisy supervision that occurs in RL, and introduce inverse-variance RL, a Bayesian framework which combines probabilistic ensembles and Batch Inverse Variance weighting. We propose a method whereby two complementary uncertainty estimation methods account for both the Q-value and the environment stochasticity to better mitigate the negative impacts of noisy supervision. Our results show significant improvement in terms of sample efficiency on discrete and continuous control tasks.
 
-## Installing Dependencies 
 
+## Installing Dependencies (DQN)
+
+	conda create -n iv_rl python=3.9
+
+ 	conda activate iv_rl
+
+	pip install -r requirements_py9.txt
+
+
+## Installing Dependencies  (SAC)
+
+SAC code requires older version of gym and mujoco-py and only works with python versions 3.7 or older.
 
 	conda create -n iv_rl python=3.7 
 

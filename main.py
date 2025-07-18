@@ -1,5 +1,5 @@
 import os
-import gym 
+import gym
 import argparse
 
 import torch
@@ -8,7 +8,6 @@ import torch.optim as optim
 import torch.nn.functional as F
 
 from dqn import * 
-from sac import *
 from utils import *
 from config import config 
 from codecarbon import EmissionsTracker
@@ -22,51 +21,56 @@ warnings.filterwarnings('ignore')
 
 os.environ["WANDB_SILENT"] = "true"
 
-model_dict = {"DQN"                        : DQNAgent,
-              "VarDQN"                     : LossAttDQN,
-              "EnsembleDQN"                : EnsembleDQN,
-              "BootstrapDQN"               : RPFMaskEnsembleDQN,
-              "IV_EnsembleDQN"             : IV_DQN,              
-              "IV_BootstrapDQN"            : IV_BootstrapDQN,
-              "BootstrapDQN"               : RPFBootstrapDQN,
-              "IV_BootstrapDQN"            : IV_RPFBootstrapDQN,
-              "IV_EnsembleDQN"             : IV_DQN,              
-              "IV_VarDQN"                  : IV_LossAttDQN,
-              "VarEnsembleDQN"             : LakshmiBootstrapDQN,
-              "IV_VarEnsembleDQN"          : IV_LakshmiBootstrapDQN,
-              "IV_DQN"                     : IV_LakshmiBootstrapDQN,
+def get_dqn_dict():
+    dqn_dict = {"DQN"                        : DQNAgent,
+                "VarDQN"                     : LossAttDQN,
+                "EnsembleDQN"                : EnsembleDQN,
+                "BootstrapDQN"               : RPFMaskEnsembleDQN,
+                "IV_EnsembleDQN"             : IV_DQN,              
+                "IV_BootstrapDQN"            : IV_BootstrapDQN,
+                "BootstrapDQN"               : RPFBootstrapDQN,
+                "IV_BootstrapDQN"            : IV_RPFBootstrapDQN,
+                "IV_EnsembleDQN"             : IV_DQN,              
+                "IV_VarDQN"                  : IV_LossAttDQN,
+                "VarEnsembleDQN"             : LakshmiBootstrapDQN,
+                "IV_VarEnsembleDQN"          : IV_LakshmiBootstrapDQN,
+                "IV_DQN"                     : IV_LakshmiBootstrapDQN,
+                }       
+    return dqn_dict
 
-              "SunriseDQN"                 : Sunrise_BootstrapDQN,
-              "Sunrise_VarEnsembleDQN"     : Sunrise_LakshmiBootstrapDQN,
+def get_sac_dict():
+    sac_dict = {
+                "SunriseDQN"                 : Sunrise_BootstrapDQN,
+                "Sunrise_VarEnsembleDQN"     : Sunrise_LakshmiBootstrapDQN,
 
-              "UWACDQN"                    : UWAC_DQN,
-              "UWAC_VarEnsembleDQN"        : UWAC_LakshmiBootstrapDQN,
+                "UWACDQN"                    : UWAC_DQN,
+                "UWAC_VarEnsembleDQN"        : UWAC_LakshmiBootstrapDQN,
 
 
-              "SAC"                        : SACTrainer,
-              "VarSAC"                     : VarSACTrainer,
-              "IV_VarSAC"                  : IV_VarSAC,
+                "SAC"                        : SACTrainer,
+                "VarSAC"                     : VarSACTrainer,
+                "IV_VarSAC"                  : IV_VarSAC,
 
-              "EnsembleSAC"                : EnsembleSAC,
-              "IV_EnsembleSAC"             : IV_EnsembleSAC,
-              "VarEnsembleSAC"             : VarEnsembleSAC,
-              "IV_SAC"                     : IV_VarEnsembleSAC,
-              "IV_VarEnsembleSAC"          : IV_VarEnsembleSAC,
+                "EnsembleSAC"                : EnsembleSAC,
+                "IV_EnsembleSAC"             : IV_EnsembleSAC,
+                "VarEnsembleSAC"             : VarEnsembleSAC,
+                "IV_SAC"                     : IV_VarEnsembleSAC,
+                "IV_VarEnsembleSAC"          : IV_VarEnsembleSAC,
 
-              "SunriseSAC"                 : SunriseSAC,
-              "Sunrise_VarEnsembleSAC"     : Sunrise_VarEnsembleSAC,
-              
-              "UWACSAC"                    : UWACSAC,
-              "UWAC_VarEnsembleSAC"        : UWAC_VarEnsembleSAC
-              }
-
+                "SunriseSAC"                 : SunriseSAC,
+                "Sunrise_VarEnsembleSAC"     : Sunrise_VarEnsembleSAC,
+                
+                "UWACSAC"                    : UWACSAC,
+                "UWAC_VarEnsembleSAC"        : UWAC_VarEnsembleSAC
+                }
+    return sac_dict
 
 
 
 parser = argparse.ArgumentParser(description="DQN options")
 parser.add_argument("--env", type=str, default="LunarLander-v2",
                     help="Gym environment")
-parser.add_argument("--model", type=str, choices=model_dict.keys(), required=True,
+parser.add_argument("--model", type=str, required=True, default="DQN",
                     help="which RL algorithm to run??")
 parser.add_argument("--lr", type=float, default=5e-4,
                     help="Learning rate for SGD update")
@@ -209,14 +213,19 @@ if __name__ == "__main__":
         os.makedirs(opt.log_dir)
     except:
         pass
-
-    Model = model_dict[opt.model]
+    print(opt.model)
     if "sac" not in opt.model.lower():
+        dqn_dict = get_dqn_dict()
+        Model = dqn_dict[opt.model]
         env = gym.make(opt.env)
-        env.seed(opt.env_seed)
+        np.random.seed(opt.env_seed)
+        # env.seed(opt.env_seed)
         agent = Model(env, opt, device=device)
         agent.train(n_episodes=opt.num_episodes, eps_decay=opt.eps_decay)
     else:
+        from sac import *
+        sac_dict = get_sac_dict()
+        Model = sac_dict[opt.model]
         run_sac(Model, opt)
 
 tracker.stop()
